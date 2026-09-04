@@ -271,6 +271,7 @@
   background: #f0c96a;
   outline: 2px solid #c99a2e;
   outline-offset: -2px;
+  cursor: grab;
 }
 
 .tile-face {
@@ -325,6 +326,11 @@
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 3px rgba(0, 0, 0, 0.3);
+  cursor: grab;
+}
+
+.rack-tile:active {
+  cursor: grabbing;
 }
 
 .rack-tile .letter {

@@ -5,7 +5,7 @@ const BONUS_LABELS = {
   DL: 'DOUBLE\nLETTER',
 };
 
-export default function Board({ board, bonusGrid, pendingByCell, onCellClick }) {
+export default function Board({ board, bonusGrid, pendingByCell, onCellClick, onCellDrop, onPendingDragStart }) {
   return (
     <div className="board">
       {board.map((row, r) => (
@@ -26,6 +26,10 @@ export default function Board({ board, bonusGrid, pendingByCell, onCellClick }) 
                 key={c}
                 className={classes.join(' ')}
                 onClick={() => onCellClick(r, c)}
+                draggable={Boolean(pending)}
+                onDragStart={(e) => pending && onPendingDragStart(e, pending.uid)}
+                onDragOver={(e) => { if (!cell) e.preventDefault(); }}
+                onDrop={(e) => onCellDrop(r, c, e)}
               >
                 {filled ? (
                   <span className="tile-face">

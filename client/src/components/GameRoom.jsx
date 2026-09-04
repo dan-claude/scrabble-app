@@ -58,6 +58,24 @@ export default function GameRoom({ state, session, onLeave }) {
     setSelectedUid((prev) => (prev === uid ? null : uid));
   }
 
+  function placeRackTileAt(uid, row, col) {
+    if (!isMyTurn || state.status !== 'playing') return false;
+    if (state.board[row][col]) return false; // permanent tile, can't touch
+    if (pendingByCell.has(`${row},${col}`)) return false;
+    const tile = rackTiles.find((t) => t.uid === uid);
+    if (!tile) return false;
+    let letter = tile.letter;
+    let isBlank = false;
+    if (letter === '#') {
+      const chosen = window.prompt('Choose a letter for the blank tile (A-Z):');
+      if (!chosen || !/^[a-zA-Z]$/.test(chosen)) return false;
+      letter = chosen.toUpperCase();
+      isBlank = true;
+    }
+    setPending((prev) => [...prev, { row, col, letter, isBlank, uid }]);
+    return true;
+  }
+
   function clickCell(row, col) {
     if (!isMyTurn || state.status !== 'playing') return;
     const key = `${row},${col}`;
@@ -68,18 +86,55 @@ export default function GameRoom({ state, session, onLeave }) {
       return;
     }
     if (!selectedUid) return;
-    const tile = rackTiles.find((t) => t.uid === selectedUid);
-    if (!tile) return;
-    let letter = tile.letter;
-    let isBlank = false;
-    if (letter === '#') {
-      const chosen = window.prompt('Choose a letter for the blank tile (A-Z):');
-      if (!chosen || !/^[a-zA-Z]$/.test(chosen)) return;
-      letter = chosen.toUpperCase();
-      isBlank = true;
-    }
-    setPending((prev) => [...prev, { row, col, letter, isBlank, uid: selectedUid }]);
+    placeRackTileAt(selectedUid, row, col);
     setSelectedUid(null);
+  }
+
+  // -- drag and drop -----------------------------------------------------
+
+  function handleRackDragStart(e, uid) {
+    if (!isMyTurn || state.status !== 'playing' || exchangeMode) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', `rack:${uid}`);
+  }
+
+  function handlePendingDragStart(e, uid) {
+    if (!isMyTurn || state.status !== 'playing') {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', `board:${uid}`);
+  }
+
+  function handleCellDrop(row, col, e) {
+    e.preventDefault();
+    if (!isMyTurn || state.status !== 'playing') return;
+    const [source, uid] = (e.dataTransfer.getData('text/plain') || '').split(':');
+    if (!source || !uid) return;
+    if (state.board[row][col]) return;
+    if (pendingByCell.has(`${row},${col}`)) return;
+    if (source === 'rack') {
+      placeRackTileAt(uid, row, col);
+      setSelectedUid(null);
+    } else if (source === 'board') {
+      setPending((prev) => {
+        const existing = prev.find((p) => p.uid === uid);
+        if (!existing) return prev;
+        return prev.filter((p) => p.uid !== uid).concat([{ ...existing, row, col }]);
+      });
+    }
+  }
+
+  function handleRackDrop(e) {
+    e.preventDefault();
+    const [source, uid] = (e.dataTransfer.getData('text/plain') || '').split(':');
+    if (source === 'board' && uid) {
+      setPending((prev) => prev.filter((p) => p.uid !== uid));
+    }
   }
 
   function recallAll() {
@@ -229,6 +284,8 @@ export default function GameRoom({ state, session, onLeave }) {
               bonusGrid={state.bonusGrid}
               pendingByCell={pendingByCell}
               onCellClick={clickCell}
+              onCellDrop={handleCellDrop}
+              onPendingDragStart={handlePendingDragStart}
             />
             {state.status === 'playing' && (
               <>
@@ -238,6 +295,8 @@ export default function GameRoom({ state, session, onLeave }) {
                   exchangeMode={exchangeMode}
                   exchangeSelected={exchangeSelected}
                   onSelect={selectRackTile}
+                  onDragStart={handleRackDragStart}
+                  onDropBack={handleRackDrop}
                 />
                 <div className="controls">
                   {isMyTurn ? (

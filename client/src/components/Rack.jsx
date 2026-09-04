@@ -4,9 +4,9 @@ const VALUES = {
   U: 1, V: 4, W: 4, X: 8, Y: 4, Z: 10, '#': 0,
 };
 
-export default function Rack({ tiles, selectedUid, exchangeSelected, exchangeMode, onSelect }) {
+export default function Rack({ tiles, selectedUid, exchangeSelected, exchangeMode, onSelect, onDragStart, onDropBack }) {
   return (
-    <div className="rack">
+    <div className="rack" onDragOver={(e) => e.preventDefault()} onDrop={onDropBack}>
       {tiles.map((t) => {
         const isSelected = t.uid === selectedUid;
         const isExchangeSelected = exchangeSelected?.includes(t.uid);
@@ -19,6 +19,8 @@ export default function Rack({ tiles, selectedUid, exchangeSelected, exchangeMod
             key={t.uid}
             className={classes.join(' ')}
             onClick={() => onSelect(t.uid)}
+            draggable
+            onDragStart={(e) => onDragStart(e, t.uid)}
           >
             <span className="letter">{t.letter === '#' ? '' : t.letter}</span>
             <span className="value">{VALUES[t.letter]}</span>
