@@ -272,6 +272,7 @@
   outline: 2px solid #c99a2e;
   outline-offset: -2px;
   cursor: grab;
+  touch-action: none;
 }
 
 .tile-face {
@@ -327,10 +328,34 @@
   justify-content: center;
   box-shadow: 0 2px 3px rgba(0, 0, 0, 0.3);
   cursor: grab;
+  touch-action: none;
 }
 
 .rack-tile:active {
   cursor: grabbing;
+}
+
+.drag-ghost {
+  position: fixed;
+  z-index: 1000;
+  width: 3rem;
+  height: 3rem;
+  transform: translate(-50%, -50%);
+  background: #f4e3b2;
+  border: 2px solid #d8b978;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  opacity: 0.92;
+}
+
+.drag-ghost .letter {
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: #222;
 }
 
 .rack-tile .letter {

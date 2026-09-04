@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { call, clearSession } from '../socket';
 import Board from './Board';
 import Rack from './Rack';
@@ -24,6 +24,9 @@ export default function GameRoom({ state, session, onLeave }) {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [dragVisual, setDragVisual] = useState(null); // { letter, isBlank, x, y }
+  const dragInfoRef = useRef(null);
+  const justDraggedRef = useRef(false);
 
   useEffect(() => {
     const serverRack = you?.rack || [];
@@ -48,6 +51,7 @@ export default function GameRoom({ state, session, onLeave }) {
   const availableRack = rackTiles.filter((t) => !pending.some((p) => p.uid === t.uid));
 
   function selectRackTile(uid) {
+    if (justDraggedRef.current) return;
     if (exchangeMode) {
       setExchangeSelected((prev) =>
         prev.includes(uid) ? prev.filter((u) => u !== uid) : [...prev, uid]
@@ -77,6 +81,7 @@ export default function GameRoom({ state, session, onLeave }) {
   }
 
   function clickCell(row, col) {
+    if (justDraggedRef.current) return;
     if (!isMyTurn || state.status !== 'playing') return;
     const key = `${row},${col}`;
     if (state.board[row][col]) return; // permanent tile, can't touch
@@ -91,50 +96,94 @@ export default function GameRoom({ state, session, onLeave }) {
   }
 
   // -- drag and drop -----------------------------------------------------
+  // Built on Pointer Events (not the HTML5 drag-and-drop API), because native
+  // HTML5 DnD is mouse-oriented and unreliable on touch devices. Pointer
+  // Events unify mouse, touch, and pen, so this works the same way everywhere.
+  // A short tap (no movement past the threshold) is left to the element's own
+  // onClick, so keyboard/tap selection behaves exactly as before.
 
-  function handleRackDragStart(e, uid) {
-    if (!isMyTurn || state.status !== 'playing' || exchangeMode) {
-      e.preventDefault();
-      return;
-    }
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', `rack:${uid}`);
-  }
+  const DRAG_THRESHOLD = 6; // px of movement before a tap becomes a drag
 
-  function handlePendingDragStart(e, uid) {
-    if (!isMyTurn || state.status !== 'playing') {
-      e.preventDefault();
-      return;
-    }
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', `board:${uid}`);
-  }
-
-  function handleCellDrop(row, col, e) {
-    e.preventDefault();
+  function beginDrag(e, info) {
     if (!isMyTurn || state.status !== 'playing') return;
-    const [source, uid] = (e.dataTransfer.getData('text/plain') || '').split(':');
-    if (!source || !uid) return;
-    if (state.board[row][col]) return;
-    if (pendingByCell.has(`${row},${col}`)) return;
-    if (source === 'rack') {
-      placeRackTileAt(uid, row, col);
-      setSelectedUid(null);
-    } else if (source === 'board') {
-      setPending((prev) => {
-        const existing = prev.find((p) => p.uid === uid);
-        if (!existing) return prev;
-        return prev.filter((p) => p.uid !== uid).concat([{ ...existing, row, col }]);
-      });
+    if (info.source === 'rack' && exchangeMode) return; // let exchange taps work normally
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragInfoRef.current = {
+      ...info,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+    };
+  }
+
+  function handleRackPointerDown(e, tile) {
+    beginDrag(e, { source: 'rack', uid: tile.uid, letter: tile.letter, isBlank: false });
+  }
+
+  function handlePendingPointerDown(e, row, col, pendingTile) {
+    beginDrag(e, {
+      source: 'board',
+      uid: pendingTile.uid,
+      letter: pendingTile.letter,
+      isBlank: pendingTile.isBlank,
+      row,
+      col,
+    });
+  }
+
+  function handleDragPointerMove(e) {
+    const d = dragInfoRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    if (!d.moved) {
+      const dx = e.clientX - d.startX;
+      const dy = e.clientY - d.startY;
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      d.moved = true;
+    }
+    setDragVisual({ letter: d.letter, isBlank: d.isBlank, x: e.clientX, y: e.clientY });
+  }
+
+  function handleDragPointerUp(e) {
+    const d = dragInfoRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    dragInfoRef.current = null;
+    setDragVisual(null);
+    if (!d.moved) return; // plain tap - the element's own onClick already handles it
+
+    // Suppress the click event the browser fires right after this pointerup,
+    // so a real drag doesn't also register as a tap-select on the origin tile.
+    justDraggedRef.current = true;
+    requestAnimationFrame(() => { justDraggedRef.current = false; });
+
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    const cellEl = target?.closest('[data-cell-row]');
+    const rackEl = target?.closest('[data-rack-dropzone]');
+
+    if (cellEl) {
+      const row = Number(cellEl.dataset.cellRow);
+      const col = Number(cellEl.dataset.cellCol);
+      if (state.board[row][col] || pendingByCell.has(`${row},${col}`)) return;
+      if (d.source === 'rack') {
+        placeRackTileAt(d.uid, row, col);
+        setSelectedUid(null);
+      } else {
+        setPending((prev) => {
+          const existing = prev.find((p) => p.uid === d.uid);
+          if (!existing) return prev;
+          return prev.filter((p) => p.uid !== d.uid).concat([{ ...existing, row, col }]);
+        });
+      }
+    } else if (rackEl && d.source === 'board') {
+      setPending((prev) => prev.filter((p) => p.uid !== d.uid));
     }
   }
 
-  function handleRackDrop(e) {
-    e.preventDefault();
-    const [source, uid] = (e.dataTransfer.getData('text/plain') || '').split(':');
-    if (source === 'board' && uid) {
-      setPending((prev) => prev.filter((p) => p.uid !== uid));
-    }
+  function handleDragPointerCancel(e) {
+    const d = dragInfoRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    dragInfoRef.current = null;
+    setDragVisual(null);
   }
 
   function recallAll() {
@@ -284,8 +333,10 @@ export default function GameRoom({ state, session, onLeave }) {
               bonusGrid={state.bonusGrid}
               pendingByCell={pendingByCell}
               onCellClick={clickCell}
-              onCellDrop={handleCellDrop}
-              onPendingDragStart={handlePendingDragStart}
+              onPendingPointerDown={handlePendingPointerDown}
+              onDragPointerMove={handleDragPointerMove}
+              onDragPointerUp={handleDragPointerUp}
+              onDragPointerCancel={handleDragPointerCancel}
             />
             {state.status === 'playing' && (
               <>
@@ -295,8 +346,10 @@ export default function GameRoom({ state, session, onLeave }) {
                   exchangeMode={exchangeMode}
                   exchangeSelected={exchangeSelected}
                   onSelect={selectRackTile}
-                  onDragStart={handleRackDragStart}
-                  onDropBack={handleRackDrop}
+                  onTilePointerDown={handleRackPointerDown}
+                  onDragPointerMove={handleDragPointerMove}
+                  onDragPointerUp={handleDragPointerUp}
+                  onDragPointerCancel={handleDragPointerCancel}
                 />
                 <div className="controls">
                   {isMyTurn ? (
@@ -350,6 +403,12 @@ export default function GameRoom({ state, session, onLeave }) {
             />
             <GameLog log={state.log} />
           </div>
+        </div>
+      )}
+
+      {dragVisual && (
+        <div className="drag-ghost" style={{ left: dragVisual.x, top: dragVisual.y }}>
+          <span className="letter">{dragVisual.letter === '#' ? '' : dragVisual.letter}</span>
         </div>
       )}
     </div>
