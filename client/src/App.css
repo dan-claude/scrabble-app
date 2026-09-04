@@ -151,6 +151,47 @@
   opacity: 0.5;
 }
 
+.invite-link {
+  margin: 1.25rem 0;
+  text-align: left;
+}
+
+.invite-link label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.invite-link-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.invite-link-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #444;
+  background: #f7f7f7;
+}
+
+.invite-link-row button {
+  padding: 0.5rem 0.9rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .game-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;

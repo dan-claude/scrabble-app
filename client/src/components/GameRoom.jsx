@@ -23,6 +23,7 @@ export default function GameRoom({ state, session, onLeave }) {
   const [exchangeSelected, setExchangeSelected] = useState([]);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   useEffect(() => {
     const serverRack = you?.rack || [];
@@ -162,6 +163,18 @@ export default function GameRoom({ state, session, onLeave }) {
     onLeave();
   }
 
+  const shareUrl = `${window.location.origin}${window.location.pathname}?room=${state.roomCode}`;
+
+  async function copyInviteLink() {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      window.prompt('Copy this invite link:', shareUrl);
+    }
+  }
+
   return (
     <div className="game-room">
       <header className="room-header">
@@ -174,20 +187,37 @@ export default function GameRoom({ state, session, onLeave }) {
 
       {state.status === 'lobby' && (
         <div className="waiting-room">
-          <p>Waiting for players... ({state.players.length}/4)</p>
+          <p>Waiting for players... ({state.players.length}/{state.maxPlayers})</p>
           <ul>
             {state.players.map((p) => (
               <li key={p.id}>{p.name}{p.id === state.hostId ? ' (host)' : ''}</li>
             ))}
           </ul>
           {isHost ? (
-            <button onClick={startGame} disabled={busy || state.players.length < 2}>
+            <button onClick={startGame} disabled={busy || state.players.length < state.minPlayers}>
               Start game
             </button>
           ) : (
             <p className="muted">Waiting for host to start...</p>
           )}
-          <p className="hint">Share room code <strong>{state.roomCode}</strong> with friends.</p>
+          <div className="invite-link">
+            <label>
+              Invite link
+              <div className="invite-link-row">
+                <input
+                  readOnly
+                  value={shareUrl}
+                  onFocus={(e) => e.target.select()}
+                />
+                <button type="button" onClick={copyInviteLink}>
+                  {linkCopied ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            </label>
+            <p className="hint">
+              Or share the room code <strong>{state.roomCode}</strong> directly.
+            </p>
+          </div>
         </div>
       )}
 

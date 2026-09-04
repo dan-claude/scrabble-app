@@ -8,6 +8,8 @@ from .tiles import create_tile_bag, letter_value
 
 MAX_RACK = 7
 BINGO_BONUS = 50
+MIN_PLAYERS = 2
+MAX_PLAYERS = 4  # standard 100-tile Scrabble set gets thin past this
 
 _LETTER_RE = re.compile(r'^[A-Z]$')
 
@@ -47,8 +49,8 @@ class Game:
     def add_player(self, token, socket_id, name):
         if self.status != 'lobby':
             raise GameError('Game already in progress.')
-        if len(self.players) >= 4:
-            raise GameError('Room is full (4 players max).')
+        if len(self.players) >= MAX_PLAYERS:
+            raise GameError(f'Room is full ({MAX_PLAYERS} players max).')
         if any(p.name.lower() == name.lower() for p in self.players):
             raise GameError('That name is already taken in this room.')
         player = Player(token, socket_id, name)
@@ -82,8 +84,8 @@ class Game:
     def start(self):
         if self.status != 'lobby':
             raise GameError('Game already started.')
-        if len(self.players) < 2:
-            raise GameError('Need at least 2 players to start.')
+        if len(self.players) < MIN_PLAYERS:
+            raise GameError(f'Need at least {MIN_PLAYERS} players to start.')
         for player in self.players:
             self._fill_rack(player)
         self.status = 'playing'
@@ -397,6 +399,8 @@ class Game:
         return {
             'roomCode': self.room_code,
             'status': self.status,
+            'minPlayers': MIN_PLAYERS,
+            'maxPlayers': MAX_PLAYERS,
             'board': self.board,
             'bonusGrid': self.bonus_grid,
             'bagCount': len(self.bag),

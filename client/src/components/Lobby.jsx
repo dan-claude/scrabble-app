@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { call, saveSession } from '../socket';
 
 export default function Lobby({ onEntered }) {
@@ -7,6 +7,16 @@ export default function Lobby({ onEntered }) {
   const [mode, setMode] = useState('create');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const invited = params.get('room');
+    if (invited) {
+      setMode('join');
+      setRoomCode(invited.toUpperCase().slice(0, 5));
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   async function submit(e) {
     e.preventDefault();
@@ -67,7 +77,7 @@ export default function Lobby({ onEntered }) {
           {mode === 'create' ? 'Create room' : 'Join room'}
         </button>
       </form>
-      <p className="hint">Share the room code with friends (2–4 players) once you're in.</p>
+      <p className="hint">Create a room, then send friends the invite link (2–4 players).</p>
     </div>
   );
 }
