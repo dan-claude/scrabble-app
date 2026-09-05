@@ -43,6 +43,7 @@ class Game:
         self.log = []
         self.host_id = None
         self.winner_id = None
+        self.last_activity = time.time()
 
     # -- membership -----------------------------------------------------
 
@@ -74,6 +75,10 @@ class Game:
 
     def get_player(self, token):
         return next((p for p in self.players if p.id == token), None)
+
+    def touch(self):
+        """Record activity so the idle-room reaper doesn't reclaim this room."""
+        self.last_activity = time.time()
 
     @property
     def current_player(self):
@@ -129,8 +134,10 @@ class Game:
 
     def exchange_tiles(self, player_id, letters):
         player = self._assert_turn(player_id)
-        if not letters:
+        if not isinstance(letters, list) or not letters:
             raise GameError('Select at least one tile to exchange.')
+        if len(letters) > MAX_RACK:
+            raise GameError(f'Cannot exchange more than {MAX_RACK} tiles at once.')
         if not self.bag:
             raise GameError('The bag is empty; you cannot exchange.')
         rack_copy = list(player.rack)
@@ -161,12 +168,16 @@ class Game:
 
     def place_tiles(self, player_id, placements):
         player = self._assert_turn(player_id)
-        if not placements:
+        if not isinstance(placements, list) or not placements:
             raise GameError('No tiles placed.')
+        if len(placements) > MAX_RACK:
+            raise GameError(f'Cannot place more than {MAX_RACK} tiles in one move.')
 
         # Normalize & validate bounds / no overlap with existing tiles / no duplicate cells.
         seen = set()
         for p in placements:
+            if not isinstance(p, dict):
+                raise GameError('Invalid placement.')
             row, col = p.get('row'), p.get('col')
             if not isinstance(row, int) or not isinstance(col, int) or isinstance(row, bool) or isinstance(col, bool):
                 raise GameError('Invalid placement.')

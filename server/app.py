@@ -1,5 +1,7 @@
 import os
 import threading
+import time
+from collections import defaultdict, deque
 from functools import wraps
 from pathlib import Path
 
@@ -22,6 +24,17 @@ socketio = SocketIO(app, cors_allowed_origins=CLIENT_ORIGIN)
 rooms = RoomManager()
 # socket id (sid) -> {"room_code": str, "token": str}
 socket_sessions = {}
+
+# --- simple per-IP rate limit on room creation (defends against a single
+# client flooding room:create to exhaust server memory) ---
+ROOM_CREATE_LIMIT = 5
+ROOM_CREATE_WINDOW_SECONDS = 60.0
+_room_create_log = defaultdict(deque)  # ip -> deque[timestamps within the window]
+_room_create_lock = threading.Lock()
+
+# --- periodic sweep for rooms that have gone idle without ever formally
+# disconnecting (laptop closed mid-game, a tab left open forever, etc.) ---
+IDLE_SWEEP_INTERVAL_SECONDS = 30 * 60
 
 
 # ---------------------------------------------------------------------------
@@ -49,8 +62,28 @@ def serve_client(path):
 # Socket.IO plumbing
 # ---------------------------------------------------------------------------
 
+def _check_room_create_rate_limit():
+    ip = request.remote_addr or 'unknown'
+    now = time.time()
+    with _room_create_lock:
+        recent = _room_create_log[ip]
+        while recent and now - recent[0] > ROOM_CREATE_WINDOW_SECONDS:
+            recent.popleft()
+        if len(recent) >= ROOM_CREATE_LIMIT:
+            raise GameError('Too many rooms created from this connection. Please wait a minute and try again.')
+        recent.append(now)
+
+
+def _sweep_idle_rooms():
+    removed = rooms.reap_idle_rooms()
+    if removed:
+        app.logger.info('Reaped %d idle room(s).', removed)
+    threading.Timer(IDLE_SWEEP_INTERVAL_SECONDS, _sweep_idle_rooms).start()
+
+
 def broadcast_state(game):
     """Push a personalized state snapshot to every connected player in the room."""
+    game.touch()
     for player in game.players:
         if not player.connected:
             continue
@@ -95,6 +128,7 @@ def _require_game(with_token=False):
 @socketio.on('room:create')
 @handle_errors
 def on_room_create(data):
+    _check_room_create_rate_limit()
     name = (data.get('playerName') or '').strip()[:20]
     if not name:
         raise GameError('Enter a name.')
@@ -191,6 +225,8 @@ def on_disconnect():
     room_code = session['room_code']
     threading.Timer(5.0, lambda: rooms.remove_if_empty(room_code)).start()
 
+
+threading.Timer(IDLE_SWEEP_INTERVAL_SECONDS, _sweep_idle_rooms).start()
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=PORT, debug=FLASK_DEBUG, allow_unsafe_werkzeug=True)
