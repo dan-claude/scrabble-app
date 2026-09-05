@@ -31,3 +31,19 @@ export function loadSession() {
 export function clearSession() {
   localStorage.removeItem(SESSION_KEY);
 }
+
+// Remembers the player's display name across visits/rooms, so a returning
+// visitor (e.g. someone re-using a room invite link) doesn't have to retype
+// it. Deliberately a real cookie rather than localStorage, as requested.
+const NAME_COOKIE = 'scrabble_name';
+const NAME_COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // ~1 year
+
+export function saveName(name) {
+  const value = encodeURIComponent(name);
+  document.cookie = `${NAME_COOKIE}=${value}; max-age=${NAME_COOKIE_MAX_AGE}; path=/; samesite=lax`;
+}
+
+export function loadName() {
+  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${NAME_COOKIE}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : '';
+}
