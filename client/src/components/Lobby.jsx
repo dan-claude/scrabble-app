@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { call, loadName, saveName, saveSession } from '../socket';
+import { createRoom, joinRoom, loadName, saveName, saveSession } from '../api';
 
 export default function Lobby({ onEntered }) {
   const [name, setName] = useState(() => loadName());
@@ -23,10 +23,11 @@ export default function Lobby({ onEntered }) {
     const rememberedName = loadName();
     if (!rememberedName) return;
     setAutoJoinName(rememberedName);
-    call('room:join', { playerName: rememberedName, roomCode: code })
-      .then((res) => {
-        saveSession({ roomCode: res.roomCode, token: res.token });
-        onEntered({ roomCode: res.roomCode, token: res.token });
+    joinRoom(code, rememberedName)
+      .then((state) => {
+        const session = { roomCode: state.roomCode, token: state.token };
+        saveSession(session);
+        onEntered(session, state);
       })
       .catch((err) => {
         // e.g. that name is already taken in the room, or the room is gone -
@@ -43,15 +44,13 @@ export default function Lobby({ onEntered }) {
     setError('');
     setBusy(true);
     try {
-      const event = mode === 'create' ? 'room:create' : 'room:join';
-      const payload = mode === 'create'
-        ? { playerName: name }
-        : { playerName: name, roomCode: roomCode.trim().toUpperCase() };
-      const res = await call(event, payload);
-      const session = { roomCode: res.roomCode, token: res.token };
+      const state = mode === 'create'
+        ? await createRoom(name)
+        : await joinRoom(roomCode.trim().toUpperCase(), name);
+      const session = { roomCode: state.roomCode, token: state.token };
       saveSession(session);
       saveName(name.trim());
-      onEntered(session);
+      onEntered(session, state);
     } catch (err) {
       setError(err.message);
     } finally {

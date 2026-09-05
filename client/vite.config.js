@@ -10,10 +10,6 @@ export default defineConfig({
     // rejects it with "Blocked request. This host is not allowed."
     allowedHosts: ['.local'],
     proxy: {
-      '/socket.io': {
-        target: 'http://localhost:4000',
-        ws: true,
-      },
       '/api': {
         target: 'http://localhost:4000',
       },

@@ -1,48 +1,69 @@
-import { useEffect, useState } from 'react';
-import { socket, call, loadSession, clearSession } from './socket';
+import { useEffect, useRef, useState } from 'react';
+import { clearSession, fetchState, loadSession } from './api';
 import Lobby from './components/Lobby';
 import GameRoom from './components/GameRoom';
 import './App.css';
 
+const POLL_INTERVAL_MS = 1000;
+
 function App() {
-  const [connected, setConnected] = useState(socket.connected);
   const [session, setSession] = useState(null);
   const [state, setState] = useState(null);
   const [rejoinFailed, setRejoinFailed] = useState(false);
+  const [connected, setConnected] = useState(true);
+  const pollTimerRef = useRef(null);
 
+  // On first load, try to resume a saved session. There's no separate
+  // "rejoin" call under polling - a saved token just has to be accepted by
+  // the state endpoint, same as any other poll.
   useEffect(() => {
-    function onConnect() {
-      setConnected(true);
-      const saved = loadSession();
-      if (saved) {
-        call('room:rejoin', saved)
-          .then(() => setSession(saved))
-          .catch(() => {
-            clearSession();
-            setRejoinFailed(true);
-          });
-      }
-    }
-    function onDisconnect() {
-      setConnected(false);
-    }
-    function onState(payload) {
-      setState(payload);
-    }
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
-    socket.on('state', onState);
-    if (socket.connected) onConnect();
-    return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-      socket.off('state', onState);
-    };
+    const saved = loadSession();
+    if (!saved) return;
+    fetchState(saved.roomCode, saved.token)
+      .then((payload) => {
+        setSession(saved);
+        setState(payload);
+      })
+      .catch(() => {
+        clearSession();
+        setRejoinFailed(true);
+      });
   }, []);
 
-  function handleEntered(newSession) {
+  // Poll for state on a fixed interval while in a room. A ~1s interval keeps
+  // the game feeling responsive without the complexity of a persistent
+  // connection (see API.md for the tradeoffs).
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+
+    async function poll() {
+      try {
+        const payload = await fetchState(session.roomCode, session.token);
+        if (cancelled) return;
+        setState(payload);
+        setConnected(true);
+      } catch {
+        if (cancelled) return;
+        setConnected(false);
+      } finally {
+        if (!cancelled) {
+          pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+        }
+      }
+    }
+
+    poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(pollTimerRef.current);
+    };
+  }, [session]);
+
+  function handleEntered(newSession, initialState) {
     setRejoinFailed(false);
     setSession(newSession);
+    if (initialState) setState(initialState);
   }
 
   function handleLeave() {
@@ -50,8 +71,11 @@ function App() {
     setState(null);
   }
 
-  if (!connected) {
-    return <div className="status-screen">Connecting to server...</div>;
+  // Any successful action response (place/pass/exchange/start) carries the
+  // fresh state - applying it immediately means you see your own move land
+  // right away instead of waiting for the next poll tick.
+  function handleStateUpdate(payload) {
+    setState(payload);
   }
 
   if (!session || !state) {
@@ -65,7 +89,13 @@ function App() {
 
   return (
     <div className="app-shell">
-      <GameRoom state={state} session={session} onLeave={handleLeave} />
+      {!connected && <p className="error center-text">Reconnecting...</p>}
+      <GameRoom
+        state={state}
+        session={session}
+        onLeave={handleLeave}
+        onStateUpdate={handleStateUpdate}
+      />
     </div>
   );
 }

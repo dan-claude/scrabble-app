@@ -1,35 +1,39 @@
 # API Reference
 
-The server is a Flask app that speaks two protocols on the same port (default `4000`):
+The server is a plain Flask app that speaks REST/JSON on one port (default `4000`).
+There is no persistent connection of any kind — the client polls a state endpoint on a
+timer (every ~1 second) and every action is a normal HTTP request. See the note in
+[README.md](README.md) on why this project uses polling instead of WebSockets/Socket.IO.
 
-- A tiny **REST** surface for health checks and (in production) serving the built client.
-- **Socket.IO** (over WebSocket, falling back to HTTP long-polling) for everything about
-  rooms and gameplay. This is the real API — nearly every action is a Socket.IO event with
-  an acknowledgement callback, plus one server-pushed event (`state`) that carries the
-  entire game view.
-
-Base URL in development: `http://localhost:4000` (the Vite dev server proxies both
-`/api/*` and `/socket.io/*` to it, so the browser only ever talks to `http://localhost:5173`).
+Base URL in development: `http://localhost:4000` (the Vite dev server proxies `/api/*`
+to it, so the browser only ever talks to `http://localhost:5173`).
 
 ## Conventions
 
-- **Every Socket.IO event listed under "Client → Server" is called with an acknowledgement
-  callback** (`socket.emit(event, payload, callback)`), the way `socket.io-client` supports
-  natively. The server always responds through that callback — there is no separate
-  `error` broadcast event for these actions.
-- **Ack response shape** is always one of:
-  - `{"ok": true, ...extra fields}` — the fields vary per event, documented below.
-  - `{"ok": false, "error": "<human-readable message>"}` — safe to show directly to the
-    player (e.g. `"It's not your turn."`, `"\"QX\" is not a valid word."`).
-- **Authentication** is a bearer `token` string, handed out by `room:create`/`room:join` and
-  used to resume a seat via `room:rejoin`. There are no accounts or passwords — anyone who
-  holds a room's code can join it, and anyone who holds a player's token can resume that
-  player's seat (the reference client stores it in `localStorage`).
+- **Every response is JSON.** A successful request returns `200 OK` with a JSON body (the
+  shape varies per endpoint, documented below). A failed request returns a non-2xx status
+  with `{"error": "<human-readable message>"}` — safe to show directly to the player
+  (e.g. `"It's not your turn."`, `"\"QX\" is not a valid word."`).
+- **Status codes:** `400` for a rule violation or a malformed request (e.g. missing
+  name), `401` for a missing/invalid/expired player token, `404` for a room that doesn't
+  exist, `500` for an unexpected server error.
+- **Authentication** is a bearer `token` string, handed out by `POST /api/rooms` and
+  `POST /api/rooms/<code>/join`. There are no accounts or passwords — anyone who holds a
+  room's code can join it, and anyone who holds a player's token can act as that player
+  (the reference client stores it in `localStorage`). The token doubles as the session:
+  there's no separate "rejoin" call, since polling `GET /state` with a saved token *is*
+  resuming the session.
+- **Where the token goes:** as a `token` query parameter on the one `GET` endpoint, and
+  as a `token` field in the JSON body on every `POST` endpoint (mixed in with whatever
+  other fields that action needs).
 - All board coordinates are `[row, col]`, 0-indexed, `0 <= row, col <= 14`.
+- Most action endpoints (join/start/place/pass/exchange) return the same shape as
+  `GET /state` — the fresh, personalized state right after the action applies — so the
+  client can update immediately without waiting for the next poll tick.
 
 ---
 
-## REST endpoints
+## Misc endpoints
 
 ### `GET /api/health`
 
@@ -42,108 +46,106 @@ Liveness check.
 
 ### `GET /` and `GET /<path>`
 
-Serves the built React client (`client/dist/`) for any path that isn't `/api/*` or
-`/socket.io/*`, falling back to `index.html` for client-side routing. Only meaningful in
-production — see [README.md](README.md). Not used in development (the Vite dev server
-serves the client instead).
+Serves the built React client (`client/dist/`) for any path that isn't `/api/*`, falling
+back to `index.html` for client-side routing. Only meaningful in production — see
+[README.md](README.md). Not used in development (the Vite dev server serves the client
+instead).
 
 ---
 
-## Socket.IO events — Client → Server
+## Room / gameplay endpoints
 
-### `room:create`
+### `POST /api/rooms`
 
 Create a new room and join it as the host.
 
-**Payload**
+**Body**
 ```ts
 { playerName: string }   // 1-20 chars after trimming; required
 ```
 
-**Ack success**
-```json
-{ "ok": true, "roomCode": "T5HGZ", "token": "5f3a...e21" }
+**Response** `200 OK` — a `State` object (see below) plus:
+```ts
+{ token: string }   // this player's bearer token — save it (with roomCode) to resume later
 ```
-`roomCode` is a 5-character code (uppercase letters/digits, excludes ambiguous
-characters `I O 0 1`). `token` is this player's bearer token — save it (with the room
-code) to rejoin later.
+`roomCode` (inside the state object) is a 5-character code (uppercase letters/digits,
+excludes ambiguous characters `I O 0 1`).
 
-**Ack errors:** `"Enter a name."`
-
-**Side effects:** broadcasts a `state` event to the (single) player in the room.
+**Errors:** `400` `"Enter a name."` · `400` `"Too many rooms created from this
+connection. Please wait a minute and try again."` (rate limit) · `400` `"Server is at
+capacity right now — please try again in a bit."`
 
 ---
 
-### `room:join`
+### `POST /api/rooms/<code>/join`
 
 Join an existing room in its lobby.
 
-**Payload**
+**Body**
 ```ts
-{ playerName: string, roomCode: string }
+{ playerName: string }
 ```
 
-**Ack success**
-```json
-{ "ok": true, "roomCode": "T5HGZ", "token": "9c1b...a04" }
-```
+**Response** `200 OK` — a `State` object plus `{ token: string }`, same shape as
+`POST /api/rooms`.
 
-**Ack errors:** `"Room not found."` · `"Enter a name."` · `"Game already in progress."` ·
-`"Room is full (4 players max)."` · `"That name is already taken in this room."`
-(name comparison is case-insensitive)
-
-**Side effects:** broadcasts an updated `state` to every connected player in the room.
+**Errors:** `404` `"Room not found."` · `400` `"Enter a name."` · `400` `"Game already
+in progress."` · `400` `"Room is full (4 players max)."` · `400` `"That name is already
+taken in this room."` (name comparison is case-insensitive)
 
 ---
 
-### `room:rejoin`
+### `GET /api/rooms/<code>/state`
 
-Resume a previously-issued seat (e.g. after a page reload) using a saved `token`.
+Poll the current state of a room. This is the only source of truth the client needs —
+it is not diffed or paginated, always the full current state — and the client is
+expected to call it on a fixed interval (the reference client uses **1000ms**) for as
+long as it's showing that room.
 
-**Payload**
+**Query parameters**
 ```ts
-{ roomCode: string, token: string }
+token: string   // required
 ```
 
-**Ack success**
-```json
-{ "ok": true, "roomCode": "T5HGZ", "token": "9c1b...a04" }
-```
-(echoes back the same token; kept for symmetry with `room:create`/`room:join`)
+**Response** `200 OK` — a `State` object.
 
-**Ack errors:** `"Room not found."` · `"Session not found; please join again."` (token
-doesn't match any player in that room)
+**Errors:** `404` `"Room not found."` · `401` `"Missing token."` · `401` `"Session not
+found; please join again."` (token doesn't match any player in that room — e.g. the room
+was reaped, or the token is stale/wrong)
 
-**Side effects:** marks the player connected again on their new socket and broadcasts
-`state` to the room.
+Calling this with a valid token also counts as a "heartbeat" for that player (see
+[Presence](#presence) below) — it's the only signal the server has that someone is still
+there.
 
 ---
 
-### `game:start`
+### `POST /api/rooms/<code>/start`
 
 Deal racks and start the game. Any player can call it (the client only shows the button
 to the host, but the server does not enforce that — see note in
 [Known limitations](#known-limitations)).
 
-**Payload:** none required (`{}`)
+**Body**
+```ts
+{ token: string }
+```
 
-**Ack success:** `{ "ok": true }`
+**Response** `200 OK` — a `State` object.
 
-**Ack errors:** `"You are not in a room."` · `"Room not found."` · `"Game already started."` ·
-`"Need at least 2 players to start."`
-
-**Side effects:** deals 7 tiles to each player, sets `status` to `"playing"`, broadcasts
-`state`.
+**Errors:** `404` `"Room not found."` · `401` `"Missing token."` / `"Session not found;
+please join again."` · `400` `"Game already started."` · `400` `"Need at least 2 players
+to start."`
 
 ---
 
-### `game:place`
+### `POST /api/rooms/<code>/place`
 
 Place tiles on the board to form a word (or extend one) and end the turn.
 
-**Payload**
+**Body**
 ```ts
 {
+  token: string;
   placements: Array<{
     row: number;        // 0-14
     col: number;        // 0-14
@@ -157,10 +159,9 @@ single row or a single column (or be a single tile). To use a blank tile, send t
 you want it to represent and set `isBlank: true`; it will score 0 points regardless of the
 letter chosen.
 
-**Ack success:** `{ "ok": true }` (the resulting board/score is delivered via the next
-`state` broadcast, not in the ack)
+**Response** `200 OK` — a `State` object (with the updated board/score already applied).
 
-**Ack errors** (non-exhaustive, all human-readable):
+**Errors** (non-exhaustive, all human-readable, all `400` unless noted):
 `"It's not your turn."` · `"Game is not in progress."` · `"No tiles placed."` ·
 `"Invalid placement."` · `"Placement out of bounds."` · `"Duplicate cell in placement."` ·
 `"That square is already occupied."` · `"Invalid letter in placement."` ·
@@ -168,7 +169,8 @@ letter chosen.
 `"Tiles must be placed in a single row or column."` ·
 `"Placed tiles must be contiguous (no gaps)."` ·
 `"New tiles must connect to existing tiles on the board."` ·
-`"That does not form a word."` · `"\"XYZ\" is not a valid word."`
+`"That does not form a word."` · `"\"XYZ\" is not a valid word."` · plus the `401`
+token errors shared by every action endpoint.
 
 **Scoring rules applied server-side:**
 - Letter/word bonus squares (`DL`/`TL`/`DW`/`TW`) apply only to *newly placed* tiles —
@@ -180,59 +182,58 @@ letter chosen.
 - If this empties the player's rack and the bag is also empty, the game ends immediately
   (see [Game end](#game-end)).
 
-**Side effects:** updates the board and the mover's score, refills their rack from the bag,
-advances the turn, broadcasts `state`.
-
 ---
 
-### `game:pass`
+### `POST /api/rooms/<code>/pass`
 
 Pass the current turn without playing.
 
-**Payload:** none required (`{}`)
+**Body**
+```ts
+{ token: string }
+```
 
-**Ack success:** `{ "ok": true }`
+**Response** `200 OK` — a `State` object.
 
-**Ack errors:** `"It's not your turn."` · `"Game is not in progress."`
+**Errors:** `400` `"It's not your turn."` · `400` `"Game is not in progress."` · plus the
+shared `401`/`404` errors.
 
-**Side effects:** advances the turn, broadcasts `state`. If every player passes twice in a
-row (`consecutive passes >= players * 2`), the game ends (see [Game end](#game-end)).
+If every player passes twice in a row (`consecutive passes >= players * 2`), the game
+ends (see [Game end](#game-end)).
 
 ---
 
-### `game:exchange`
+### `POST /api/rooms/<code>/exchange`
 
 Discard some of your rack tiles back into the bag and draw replacements, ending your turn.
 
-**Payload**
+**Body**
 ```ts
-{ letters: string[] }   // e.g. ["A", "Q", "#"] — use "#" for a blank tile
+{ token: string; letters: string[] }   // e.g. ["A", "Q", "#"] — use "#" for a blank tile
 ```
 
-**Ack success:** `{ "ok": true }`
+**Response** `200 OK` — a `State` object.
 
-**Ack errors:** `"It's not your turn."` · `"Game is not in progress."` ·
-`"Select at least one tile to exchange."` · `"The bag is empty; you cannot exchange."` ·
-`"You don't have a \"X\" tile to exchange."`
+**Errors:** `400` `"It's not your turn."` · `400` `"Game is not in progress."` ·
+`400` `"Select at least one tile to exchange."` · `400` `"The bag is empty; you cannot
+exchange."` · `400` `"You don't have a \"X\" tile to exchange."` · plus the shared
+`401`/`404` errors.
 
-**Side effects:** returns the named tiles to the bag, shuffles it, draws replacements,
-advances the turn, broadcasts `state`. Counts toward the pass-based game-end threshold
-the same way a pass does.
+Returns the named tiles to the bag, shuffles it, draws replacements, advances the turn.
+Counts toward the pass-based game-end threshold the same way a pass does.
 
 ---
 
-## Socket.IO events — Server → Client
+## The `State` object
 
-### `state`
-
-Pushed to **every connected player in a room** (individually, so each copy is
-personalized) after any action changes the room. This is the only source of truth the
-client needs — it is not diffed or paginated, always the full current state.
+Every room/gameplay endpoint above returns this same shape (personalized per player):
 
 ```ts
 {
   roomCode: string;
   status: "lobby" | "playing" | "finished";
+  minPlayers: number;                  // 2
+  maxPlayers: number;                  // 4
   board: (BoardCell | null)[][];       // 15x15, board[row][col]
   bonusGrid: (BonusLabel | null)[][];  // 15x15, static for the whole game
   bagCount: number;                    // tiles remaining, undrawn
@@ -241,7 +242,8 @@ client needs — it is not diffed or paginated, always the full current state.
   winnerId: string | null;             // set once status=="finished"
   log: LogEntry[];                     // most recent 50 events, oldest first
   players: PlayerView[];
-  youId: string;                       // which player this particular copy is for
+  youId: string;                       // which player this particular response is for
+  token?: string;                      // only present on POST /api/rooms and .../join
 }
 
 type BoardCell = { letter: string; isBlank: boolean };
@@ -252,8 +254,8 @@ type PlayerView = {
   name: string;
   score: number;
   rackCount: number;
-  connected: boolean;
-  rack: string[] | null;   // only populated for the recipient's own entry; null for others
+  connected: boolean;       // see Presence below
+  rack: string[] | null;    // only populated for the recipient's own entry; null for others
 };
 
 type LogEntry = {
@@ -270,25 +272,41 @@ shows the letter it was set to play as, with `isBlank: true`.
 
 ---
 
-## Connection lifecycle
+## Presence
 
-- On `disconnect`, a player is marked `connected: false` and a `state` update is
-  broadcast to the room's remaining connected players — their tiles and score stay
-  intact, they just show as offline.
-- If **every** player in a room is disconnected, the room (and its game state) is deleted
-  5 seconds later. A room that empties out during the lobby phase is cleaned up the same
-  way.
-- To resume after a disconnect (e.g. a page reload), the client calls `room:rejoin` with
-  the saved `roomCode`/`token`; this attaches the new socket to the existing player and
-  the game continues exactly where it left off — no new tiles are dealt.
+There's no connect/disconnect event under polling — the server only knows a player is
+"there" because their requests keep arriving. Each player has a `last_seen` timestamp,
+updated on every request that identifies them (join, a poll, or any action). A player's
+`connected` field in `State` is simply `(now - last_seen) < 6 seconds`. With the
+reference client polling every ~1s, a healthy connection reads as `connected: true`
+continuously; a closed tab or a lost network flips it to `false` within a few seconds,
+without the server needing to be told explicitly.
+
+## Room cleanup
+
+Two independent sweeps run every 30 seconds:
+
+- **Abandoned-room reap:** if every player in a room has gone stale (no request in over
+  120 seconds — nobody is polling it any more), the room and its game state are deleted.
+  This is the replacement for the old "everyone disconnected" cleanup, just based on
+  polling recency instead of socket disconnect events.
+- **Idle-room reap:** if a room has had no *game-affecting* action (join, start, place,
+  pass, exchange) in over 6 hours — even if someone's tab is still open and quietly
+  polling it — it's deleted too. This bounds memory from a lone forgotten tab
+  independently of the check above.
+
+Merely polling `GET /state` counts toward the first sweep (keeps `last_seen` fresh) but
+not the second (doesn't reset `last_activity`) — that's what lets a truly idle-but-open
+room still eventually get reaped.
 
 ## Game end
 
 Ends the round and finalizes scores in one of two ways:
 
-1. **A player empties their rack while the bag is empty** (triggered inside `game:place`):
-   every other player's score is reduced by the sum of their remaining rack tiles' point
-   values, and the player who went out gains the total of all those deducted points.
+1. **A player empties their rack while the bag is empty** (triggered inside
+   `POST .../place`): every other player's score is reduced by the sum of their
+   remaining rack tiles' point values, and the player who went out gains the total of
+   all those deducted points.
 2. **Stalemate** — every player passes (or exchanges) twice in a row: everyone's score is
    simply reduced by the value of the tiles left in their own rack, nobody gains anything.
 
@@ -299,13 +317,16 @@ up with the highest score.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `PORT` | `4000` | HTTP/Socket.IO listen port |
-| `CLIENT_ORIGIN` | `http://localhost:5173` | Allowed CORS origin for Socket.IO |
+| `PORT` | `4000` | HTTP listen port |
 | `FLASK_DEBUG` | `0` | `1` enables Flask's debug/reloader mode (dev only) |
 
 ## Known limitations
 
-- `game:start` does not check that the caller is the host — the reference client only
-  shows the "Start game" button to the host, but any player in the lobby could call it
-  directly. Not a concern for a casual game among friends holding the same room code.
-- State is entirely in-memory; restarting the server drops all rooms and games in progress.
+- `POST .../start` does not check that the caller is the host — the reference client
+  only shows the "Start game" button to the host, but any player in the lobby could call
+  it directly. Not a concern for a casual game among friends holding the same room code.
+- State is entirely in-memory; restarting the server drops all rooms and games in
+  progress.
+- Polling means state updates lag by up to one poll interval (~1s in the reference
+  client) instead of being pushed instantly — see [README.md](README.md) for why this
+  tradeoff was made.

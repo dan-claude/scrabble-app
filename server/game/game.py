@@ -10,6 +10,8 @@ MAX_RACK = 7
 BINGO_BONUS = 50
 MIN_PLAYERS = 2
 MAX_PLAYERS = 4  # standard 100-tile Scrabble set gets thin past this
+CONNECTED_TIMEOUT_SECONDS = 6  # no persistent connection under polling, so
+# "connected" is just "has polled recently" (the client polls every ~1s)
 
 _LETTER_RE = re.compile(r'^[A-Z]$')
 
@@ -19,15 +21,14 @@ class GameError(Exception):
 
 
 class Player:
-    __slots__ = ('id', 'socket_id', 'name', 'rack', 'score', 'connected')
+    __slots__ = ('id', 'name', 'rack', 'score', 'last_seen')
 
-    def __init__(self, token, socket_id, name):
+    def __init__(self, token, name):
         self.id = token
-        self.socket_id = socket_id
         self.name = name
         self.rack = []
         self.score = 0
-        self.connected = True
+        self.last_seen = time.time()
 
 
 class Game:
@@ -47,31 +48,18 @@ class Game:
 
     # -- membership -----------------------------------------------------
 
-    def add_player(self, token, socket_id, name):
+    def add_player(self, token, name):
         if self.status != 'lobby':
             raise GameError('Game already in progress.')
         if len(self.players) >= MAX_PLAYERS:
             raise GameError(f'Room is full ({MAX_PLAYERS} players max).')
         if any(p.name.lower() == name.lower() for p in self.players):
             raise GameError('That name is already taken in this room.')
-        player = Player(token, socket_id, name)
+        player = Player(token, name)
         self.players.append(player)
         if not self.host_id:
             self.host_id = token
         return player
-
-    def reconnect(self, token, new_socket_id):
-        player = self.get_player(token)
-        if not player:
-            return None
-        player.socket_id = new_socket_id
-        player.connected = True
-        return player
-
-    def mark_disconnected(self, token):
-        player = self.get_player(token)
-        if player:
-            player.connected = False
 
     def get_player(self, token):
         return next((p for p in self.players if p.id == token), None)
@@ -407,6 +395,7 @@ class Game:
     # -- serialization ------------------------------------------------------
 
     def _public_state(self, for_player_id=None):
+        now = time.time()
         return {
             'roomCode': self.room_code,
             'status': self.status,
@@ -427,7 +416,7 @@ class Game:
                     'name': p.name,
                     'score': p.score,
                     'rackCount': len(p.rack),
-                    'connected': p.connected,
+                    'connected': (now - p.last_seen) < CONNECTED_TIMEOUT_SECONDS,
                     'rack': p.rack if p.id == for_player_id else None,
                 }
                 for p in self.players

@@ -1,18 +1,3 @@
-# Must happen before anything else is imported: gevent's monkey-patch
-# replaces stdlib modules (socket, threading, time, ...) with cooperative,
-# greenlet-friendly versions. When gevent is installed, this also makes
-# Flask-SocketIO auto-select its gevent async server (real production-grade
-# concurrency) instead of Flask's single-threaded development server. If
-# gevent isn't installed (e.g. a quick local/LAN game with friends), this is
-# a no-op and the app falls back to the plain dev server as before.
-# (gunicorn dropped its eventlet worker in 26.0 and eventlet itself is no
-# longer actively maintained, so gevent is the supported choice here.)
-try:
-    from gevent import monkey
-    monkey.patch_all()
-except ImportError:
-    pass
-
 import os
 import threading
 import time
@@ -21,7 +6,6 @@ from functools import wraps
 from pathlib import Path
 
 from flask import Flask, request, send_from_directory
-from flask_socketio import SocketIO
 
 from game.game import GameError
 from rooms import RoomManager
@@ -30,30 +14,37 @@ BASE_DIR = Path(__file__).resolve().parent
 CLIENT_DIST = BASE_DIR.parent / 'client' / 'dist'
 
 PORT = int(os.environ.get('PORT', 4000))
-CLIENT_ORIGIN = os.environ.get('CLIENT_ORIGIN', 'http://localhost:5173')
 FLASK_DEBUG = os.environ.get('FLASK_DEBUG', '0') == '1'
 
 app = Flask(__name__, static_folder=None)
-socketio = SocketIO(app, cors_allowed_origins=CLIENT_ORIGIN)
 
 rooms = RoomManager()
-# socket id (sid) -> {"room_code": str, "token": str}
-socket_sessions = {}
 
 # --- simple per-IP rate limit on room creation (defends against a single
-# client flooding room:create to exhaust server memory) ---
+# client flooding room creation to exhaust server memory) ---
 ROOM_CREATE_LIMIT = 5
 ROOM_CREATE_WINDOW_SECONDS = 60.0
 _room_create_log = defaultdict(deque)  # ip -> deque[timestamps within the window]
 _room_create_lock = threading.Lock()
 
-# --- periodic sweep for rooms that have gone idle without ever formally
-# disconnecting (laptop closed mid-game, a tab left open forever, etc.) ---
-IDLE_SWEEP_INTERVAL_SECONDS = 30 * 60
+# --- periodic sweep: reaps rooms nobody is polling any more (fast check,
+# rooms.ABANDONED_ROOM_SECONDS) and rooms that have gone idle for a long time
+# even if something is still technically polling them (slow check,
+# rooms.IDLE_ROOM_SECONDS). See rooms.py for both thresholds. ---
+SWEEP_INTERVAL_SECONDS = 30
+
+
+class ApiError(Exception):
+    """Raised for request-shape/auth problems; carries its own HTTP status.
+    (GameError, from the game engine, is always a rule violation -> 400.)"""
+
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.status = status
 
 
 # ---------------------------------------------------------------------------
-# REST routes
+# Misc / static routes
 # ---------------------------------------------------------------------------
 
 @app.get('/api/health')
@@ -65,7 +56,7 @@ def health():
 @app.get('/<path:path>')
 def serve_client(path):
     """Serve the built React client (production only; see README)."""
-    if path.startswith('api/') or path.startswith('socket.io'):
+    if path.startswith('api/'):
         return {'error': 'not found'}, 404
     target = CLIENT_DIST / path
     if path and target.is_file():
@@ -74,7 +65,7 @@ def serve_client(path):
 
 
 # ---------------------------------------------------------------------------
-# Socket.IO plumbing
+# Helpers
 # ---------------------------------------------------------------------------
 
 def _check_room_create_rate_limit():
@@ -89,159 +80,147 @@ def _check_room_create_rate_limit():
         recent.append(now)
 
 
-def _sweep_idle_rooms():
-    removed = rooms.reap_idle_rooms()
-    if removed:
-        app.logger.info('Reaped %d idle room(s).', removed)
-    threading.Timer(IDLE_SWEEP_INTERVAL_SECONDS, _sweep_idle_rooms).start()
+def _sweep_rooms():
+    abandoned = rooms.reap_abandoned_rooms()
+    idle = rooms.reap_idle_rooms()
+    if abandoned or idle:
+        app.logger.info('Reaped %d abandoned and %d idle room(s).', abandoned, idle)
+    threading.Timer(SWEEP_INTERVAL_SECONDS, _sweep_rooms).start()
 
 
-def broadcast_state(game):
-    """Push a personalized state snapshot to every connected player in the room."""
-    game.touch()
-    for player in game.players:
-        if not player.connected:
-            continue
-        payload = game.state_for(player.id)
-        payload['youId'] = player.id
-        socketio.emit('state', payload, to=player.socket_id)
-
-
-def handle_errors(fn):
-    """Wrap a Socket.IO handler so GameError becomes an {ok:false, error} ack
-    instead of an uncaught exception, matching the client's call() contract."""
+def api_route(fn):
+    """Wrap a REST view so GameError/ApiError become a JSON {error} response
+    with the right status code instead of an uncaught exception."""
     @wraps(fn)
-    def wrapper(data=None):
-        data = data or {}
+    def wrapper(*args, **kwargs):
         try:
-            result = fn(data) or {}
-            return {'ok': True, **result}
+            result = fn(*args, **kwargs) or {}
+            return result, 200
         except GameError as err:
-            return {'ok': False, 'error': str(err)}
+            return {'error': str(err)}, 400
+        except ApiError as err:
+            return {'error': str(err)}, err.status
         except Exception:
-            app.logger.exception('Unhandled error in socket handler %s', fn.__name__)
-            return {'ok': False, 'error': 'Something went wrong.'}
+            app.logger.exception('Unhandled error in %s', fn.__name__)
+            return {'error': 'Something went wrong.'}, 500
     return wrapper
 
 
-def _require_game(with_token=False):
-    session = socket_sessions.get(request.sid)
-    if not session:
-        raise GameError('You are not in a room.')
-    game = rooms.get_room(session['room_code'])
+def _get_room(code):
+    game = rooms.get_room(code)
     if not game:
-        raise GameError('Room not found.')
-    if with_token:
-        return game, session['token']
+        raise ApiError('Room not found.', 404)
     return game
 
 
+def _get_player(game, token):
+    if not token:
+        raise ApiError('Missing token.', 401)
+    player = game.get_player(token)
+    if not player:
+        raise ApiError('Session not found; please join again.', 401)
+    player.last_seen = time.time()
+    return player
+
+
+def _body():
+    return request.get_json(silent=True) or {}
+
+
+def _state_response(game, player):
+    payload = game.state_for(player.id)
+    payload['youId'] = player.id
+    return payload
+
+
 # ---------------------------------------------------------------------------
-# Socket.IO event handlers — see API.md for the full protocol reference
+# Room / gameplay routes — see API.md for the full protocol reference
 # ---------------------------------------------------------------------------
 
-@socketio.on('room:create')
-@handle_errors
-def on_room_create(data):
+@app.post('/api/rooms')
+@api_route
+def create_room():
     _check_room_create_rate_limit()
+    data = _body()
     name = (data.get('playerName') or '').strip()[:20]
     if not name:
         raise GameError('Enter a name.')
     game = rooms.create_room()
     token = os.urandom(16).hex()
-    game.add_player(token, request.sid, name)
-    socket_sessions[request.sid] = {'room_code': game.room_code, 'token': token}
-    broadcast_state(game)
-    return {'roomCode': game.room_code, 'token': token}
+    player = game.add_player(token, name)
+    game.touch()
+    result = _state_response(game, player)
+    result['token'] = token
+    return result
 
 
-@socketio.on('room:join')
-@handle_errors
-def on_room_join(data):
-    game = rooms.get_room(data.get('roomCode'))
-    if not game:
-        raise GameError('Room not found.')
+@app.post('/api/rooms/<code>/join')
+@api_route
+def join_room(code):
+    game = _get_room(code)
+    data = _body()
     name = (data.get('playerName') or '').strip()[:20]
     if not name:
         raise GameError('Enter a name.')
     token = os.urandom(16).hex()
-    game.add_player(token, request.sid, name)
-    socket_sessions[request.sid] = {'room_code': game.room_code, 'token': token}
-    broadcast_state(game)
-    return {'roomCode': game.room_code, 'token': token}
+    player = game.add_player(token, name)
+    game.touch()
+    result = _state_response(game, player)
+    result['token'] = token
+    return result
 
 
-@socketio.on('room:rejoin')
-@handle_errors
-def on_room_rejoin(data):
-    game = rooms.get_room(data.get('roomCode'))
-    if not game:
-        raise GameError('Room not found.')
-    token = data.get('token')
-    player = game.reconnect(token, request.sid)
-    if not player:
-        raise GameError('Session not found; please join again.')
-    socket_sessions[request.sid] = {'room_code': game.room_code, 'token': token}
-    broadcast_state(game)
-    return {'roomCode': game.room_code, 'token': token}
+@app.get('/api/rooms/<code>/state')
+@api_route
+def room_state(code):
+    game = _get_room(code)
+    player = _get_player(game, request.args.get('token'))
+    return _state_response(game, player)
 
 
-@socketio.on('game:start')
-@handle_errors
-def on_game_start(_data):
-    game = _require_game()
+@app.post('/api/rooms/<code>/start')
+@api_route
+def start_game(code):
+    game = _get_room(code)
+    player = _get_player(game, _body().get('token'))
     game.start()
-    broadcast_state(game)
-    return {}
+    game.touch()
+    return _state_response(game, player)
 
 
-@socketio.on('game:place')
-@handle_errors
-def on_game_place(data):
-    game, token = _require_game(with_token=True)
-    game.place_tiles(token, data.get('placements'))
-    broadcast_state(game)
-    return {}
+@app.post('/api/rooms/<code>/place')
+@api_route
+def place_tiles(code):
+    game = _get_room(code)
+    data = _body()
+    player = _get_player(game, data.get('token'))
+    game.place_tiles(player.id, data.get('placements'))
+    game.touch()
+    return _state_response(game, player)
 
 
-@socketio.on('game:pass')
-@handle_errors
-def on_game_pass(_data):
-    game, token = _require_game(with_token=True)
-    game.pass_turn(token)
-    broadcast_state(game)
-    return {}
+@app.post('/api/rooms/<code>/pass')
+@api_route
+def pass_turn(code):
+    game = _get_room(code)
+    player = _get_player(game, _body().get('token'))
+    game.pass_turn(player.id)
+    game.touch()
+    return _state_response(game, player)
 
 
-@socketio.on('game:exchange')
-@handle_errors
-def on_game_exchange(data):
-    game, token = _require_game(with_token=True)
-    game.exchange_tiles(token, data.get('letters'))
-    broadcast_state(game)
-    return {}
+@app.post('/api/rooms/<code>/exchange')
+@api_route
+def exchange_tiles(code):
+    game = _get_room(code)
+    data = _body()
+    player = _get_player(game, data.get('token'))
+    game.exchange_tiles(player.id, data.get('letters'))
+    game.touch()
+    return _state_response(game, player)
 
 
-@socketio.on('disconnect')
-def on_disconnect():
-    session = socket_sessions.pop(request.sid, None)
-    if not session:
-        return
-    game = rooms.get_room(session['room_code'])
-    if not game:
-        return
-    # Only mark the player offline if this socket is still their current
-    # connection — a stale socket's disconnect must not clobber a newer
-    # reconnection (e.g. the player reloaded and reconnected already).
-    player = game.get_player(session['token'])
-    if player and player.socket_id == request.sid:
-        game.mark_disconnected(session['token'])
-        broadcast_state(game)
-    room_code = session['room_code']
-    threading.Timer(5.0, lambda: rooms.remove_if_empty(room_code)).start()
-
-
-threading.Timer(IDLE_SWEEP_INTERVAL_SECONDS, _sweep_idle_rooms).start()
+threading.Timer(SWEEP_INTERVAL_SECONDS, _sweep_rooms).start()
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=PORT, debug=FLASK_DEBUG, allow_unsafe_werkzeug=True)
+    app.run(host='0.0.0.0', port=PORT, debug=FLASK_DEBUG, threaded=True)

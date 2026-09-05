@@ -6,7 +6,8 @@ from game.game import Game, GameError  # noqa: F401  (re-exported for convenienc
 ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 ROOM_CODE_LENGTH = 5
 MAX_ROOMS = 1000  # hard cap on concurrent rooms, so a creation flood can't exhaust memory
-IDLE_ROOM_SECONDS = 6 * 60 * 60  # reap rooms idle this long, even if a socket never disconnected
+IDLE_ROOM_SECONDS = 6 * 60 * 60  # reap rooms with no game activity for this long
+ABANDONED_ROOM_SECONDS = 120  # reap rooms nobody has polled in this long (everyone left)
 
 
 def _generate_room_code():
@@ -30,15 +31,24 @@ class RoomManager:
     def get_room(self, code):
         return self.rooms.get((code or '').upper())
 
-    def remove_if_empty(self, code):
-        game = self.rooms.get(code)
-        if game and all(not p.connected for p in game.players):
+    def reap_abandoned_rooms(self, max_stale_seconds=ABANDONED_ROOM_SECONDS):
+        """Remove rooms where every player has stopped polling for state (tab
+        closed, browser killed, etc). There's no disconnect event under
+        polling, so this is the only signal that everyone has actually left."""
+        now = time.time()
+        stale = [
+            code for code, game in self.rooms.items()
+            if not game.players or all(now - p.last_seen > max_stale_seconds for p in game.players)
+        ]
+        for code in stale:
             del self.rooms[code]
+        return len(stale)
 
     def reap_idle_rooms(self, max_idle_seconds=IDLE_ROOM_SECONDS):
-        """Remove rooms with no activity for a long time, even if every socket
-        in them technically never disconnected (laptop closed mid-game, a tab
-        left open forever, etc). Bounds memory growth independent of #remove_if_empty."""
+        """Remove rooms with no *game* activity for a long time, even if
+        someone is still technically polling them (a tab left open forever
+        with nobody actually playing). Bounds memory growth independent of
+        #reap_abandoned_rooms, which only looks at polling recency."""
         now = time.time()
         stale = [
             code for code, game in self.rooms.items()

@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { call, clearSession } from '../socket';
+import {
+  clearSession,
+  exchangeTiles as apiExchangeTiles,
+  passTurn as apiPassTurn,
+  placeTiles as apiPlaceTiles,
+  startGame as apiStartGame,
+} from '../api';
 import Board from './Board';
 import Rack from './Rack';
 import ScoreBoard from './ScoreBoard';
@@ -11,7 +17,7 @@ function nextUid() {
   return `t${uidCounter}`;
 }
 
-export default function GameRoom({ state, session, onLeave }) {
+export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
   const you = state.players.find((p) => p.id === state.youId);
   const isHost = state.hostId === state.youId;
   const isMyTurn = state.turnPlayerId === state.youId;
@@ -207,9 +213,12 @@ export default function GameRoom({ state, session, onLeave }) {
     setBusy(true);
     setMessage('');
     try {
-      await call('game:place', {
-        placements: pending.map(({ row, col, letter, isBlank }) => ({ row, col, letter, isBlank })),
-      });
+      const updated = await apiPlaceTiles(
+        session.roomCode,
+        session.token,
+        pending.map(({ row, col, letter, isBlank }) => ({ row, col, letter, isBlank })),
+      );
+      onStateUpdate(updated);
       setPending([]);
       setSelectedUid(null);
     } catch (err) {
@@ -223,7 +232,8 @@ export default function GameRoom({ state, session, onLeave }) {
     setBusy(true);
     setMessage('');
     try {
-      await call('game:pass', {});
+      const updated = await apiPassTurn(session.roomCode, session.token);
+      onStateUpdate(updated);
     } catch (err) {
       setMessage(err.message);
     } finally {
@@ -240,7 +250,8 @@ export default function GameRoom({ state, session, onLeave }) {
     setMessage('');
     try {
       const letters = exchangeSelected.map((uid) => rackTiles.find((t) => t.uid === uid).letter);
-      await call('game:exchange', { letters });
+      const updated = await apiExchangeTiles(session.roomCode, session.token, letters);
+      onStateUpdate(updated);
       setExchangeMode(false);
       setExchangeSelected([]);
     } catch (err) {
@@ -254,7 +265,8 @@ export default function GameRoom({ state, session, onLeave }) {
     setBusy(true);
     setMessage('');
     try {
-      await call('game:start', {});
+      const updated = await apiStartGame(session.roomCode, session.token);
+      onStateUpdate(updated);
     } catch (err) {
       setMessage(err.message);
     } finally {
