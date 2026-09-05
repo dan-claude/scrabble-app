@@ -1,3 +1,18 @@
+# Must happen before anything else is imported: gevent's monkey-patch
+# replaces stdlib modules (socket, threading, time, ...) with cooperative,
+# greenlet-friendly versions. When gevent is installed, this also makes
+# Flask-SocketIO auto-select its gevent async server (real production-grade
+# concurrency) instead of Flask's single-threaded development server. If
+# gevent isn't installed (e.g. a quick local/LAN game with friends), this is
+# a no-op and the app falls back to the plain dev server as before.
+# (gunicorn dropped its eventlet worker in 26.0 and eventlet itself is no
+# longer actively maintained, so gevent is the supported choice here.)
+try:
+    from gevent import monkey
+    monkey.patch_all()
+except ImportError:
+    pass
+
 import os
 import threading
 import time

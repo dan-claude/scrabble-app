@@ -1,2 +1,4 @@
 Flask==3.0.3
 Flask-SocketIO==5.3.6
+gevent==26.8.0
+gunicorn==26.2.0
