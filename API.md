@@ -327,6 +327,15 @@ route that doesn't exist at all — rather than being open by default. A request
 (never a `401`), so a prober can't even tell an admin API is present versus just hitting a
 path that was never a route to begin with.
 
+### `GET /admin`
+
+A small static page (not part of the React client) that calls the routes below and
+renders them as tables, with a delete button per room. Unlike everything else here it's
+reachable with **no token at all** — a browser can't attach a custom header via plain
+navigation, so the page has to load unauthenticated; you paste your `ADMIN_TOKEN` into a
+field on the page itself, which it then attaches to every call it makes. See
+[README.md](README.md#admin-api) for how to reach it in dev vs. production.
+
 ### `GET /api/admin/rooms`
 
 List every room the server currently has in memory (playing, in the lobby, or finished

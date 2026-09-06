@@ -124,6 +124,18 @@ Leave it unset and every `/api/admin/*` route 404s, same as a route that was nev
 defined — there's no "admin API present but locked" state to probe for. See
 [API.md](API.md#admin-api) for the full set of routes.
 
+There's also a small browser page for this at `/admin` — a table of live rooms (with a
+delete button per room) and finished-game history, auto-refreshing every 10s. Paste your
+`ADMIN_TOKEN` in once and it's remembered for that browser tab (`sessionStorage`, so
+closing the tab clears it). The page itself is plain static HTML/JS with nothing secret
+in it and loads with no token at all — it's the `/api/admin/*` calls it makes on your
+behalf, using whatever token you typed in, that are actually protected.
+
+**In dev, open it on the backend's own port, not Vite's** — Vite's dev server only
+proxies `/api`, not `/admin`, so visit `http://localhost:4000/admin` directly rather than
+`http://localhost:5173/admin`. In production, where Flask serves everything from one
+process and port, just `/admin` on your normal domain works fine.
+
 ## Why polling, not WebSockets?
 
 Earlier versions of this app used Flask-SocketIO (WebSocket, with long-polling

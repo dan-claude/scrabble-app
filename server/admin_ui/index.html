@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scrabble Admin</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f7f7f8;
+    color: #1a1a1a;
+  }
+  header {
+    background: #1a1a2e;
+    color: #fff;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  .conn-form { display: flex; gap: 8px; align-items: center; }
+  .conn-form input[type=password] {
+    padding: 6px 10px; border-radius: 6px; border: 1px solid #444; width: 260px;
+    font-family: monospace;
+  }
+  button {
+    padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer;
+    background: #4f5df0; color: #fff; font-size: 13px; font-weight: 600;
+  }
+  button:hover { background: #3d47c9; }
+  button.danger { background: #d64545; }
+  button.danger:hover { background: #b83636; }
+  button.ghost { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.4); }
+  main { padding: 24px; max-width: 1100px; margin: 0 auto; }
+  .status { font-size: 13px; color: #666; margin-bottom: 16px; }
+  .status.error { color: #b83636; }
+  section { background: #fff; border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  section h2 { margin-top: 0; font-size: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+  th { color: #888; font-weight: 600; text-transform: uppercase; font-size: 11px; }
+  .empty { color: #999; font-style: italic; padding: 12px 0; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge.lobby { background: #fff3cd; color: #856404; }
+  .badge.playing { background: #d1e7dd; color: #0f5132; }
+  .badge.finished { background: #e2e3e5; color: #41464b; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+  .dot.on { background: #2ecc71; }
+  .dot.off { background: #ccc; }
+  .players-cell span { display: block; }
+  label.auto { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666; font-weight: normal; }
+  code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Scrabble — Admin</h1>
+  <form class="conn-form" id="connForm">
+    <input type="password" id="tokenInput" placeholder="Admin token" autocomplete="off">
+    <button type="submit">Connect</button>
+    <button type="button" class="ghost" id="disconnectBtn" hidden>Disconnect</button>
+  </form>
+</header>
+<main>
+  <div class="status" id="status">Enter your admin token above to connect.</div>
+
+  <section id="roomsSection" hidden>
+    <h2>
+      <span>Live rooms</span>
+      <label class="auto"><input type="checkbox" id="autoRefresh" checked> auto-refresh</label>
+      <button type="button" id="refreshBtn">Refresh now</button>
+    </h2>
+    <table id="roomsTable">
+      <thead><tr><th>Code</th><th>Status</th><th>Players</th><th>Created</th><th>Last activity</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="empty" id="roomsEmpty" hidden>No rooms right now.</div>
+  </section>
+
+  <section id="gamesSection" hidden>
+    <h2><span>Finished games <span id="gamesCount" style="font-weight:normal;color:#999;font-size:12px"></span></span></h2>
+    <table id="gamesTable">
+      <thead><tr><th>Code</th><th>Players (final score)</th><th>Winner</th><th>Ended</th><th>Duration</th><th>Moves / passes / exchanges</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="empty" id="gamesEmpty" hidden>No finished games recorded yet. (Requires PERSISTENCE_BACKEND=file or redis.)</div>
+  </section>
+</main>
+
+<script>
+let token = sessionStorage.getItem('scrabble_admin_token') || '';
+let autoTimer = null;
+
+const el = (id) => document.getElementById(id);
+
+function setStatus(msg, isError) {
+  const s = el('status');
+  s.textContent = msg;
+  s.className = 'status' + (isError ? ' error' : '');
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    let body = null;
+    try { body = await res.json(); } catch {}
+    const err = new Error(body && body.error ? body.error : `Request failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+
+function fmtTime(ts) {
+  if (!ts) return '—';
+  return new Date(ts * 1000).toLocaleString();
+}
+
+function fmtDuration(startTs, endTs) {
+  if (!startTs || !endTs) return '—';
+  const secs = Math.max(0, Math.round(endTs - startTs));
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function renderRooms(rooms) {
+  const tbody = document.querySelector('#roomsTable tbody');
+  tbody.innerHTML = '';
+  el('roomsEmpty').hidden = rooms.length > 0;
+  for (const room of rooms) {
+    const tr = document.createElement('tr');
+    const playersHtml = room.players.map((p) =>
+      `<span><span class="dot ${p.connected ? 'on' : 'off'}"></span>${escapeHtml(p.name)} — ${p.score}</span>`
+    ).join('');
+    tr.innerHTML = `
+      <td><code>${escapeHtml(room.roomCode)}</code></td>
+      <td><span class="badge ${room.status}">${room.status}</span></td>
+      <td class="players-cell">${playersHtml}</td>
+      <td>${fmtTime(room.createdAt)}</td>
+      <td>${fmtTime(room.lastActivity)}</td>
+      <td><button type="button" class="danger" data-code="${escapeHtml(room.roomCode)}">Delete</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+  tbody.querySelectorAll('button[data-code]').forEach((btn) => {
+    btn.addEventListener('click', () => deleteRoom(btn.dataset.code));
+  });
+}
+
+function renderGames(games) {
+  const tbody = document.querySelector('#gamesTable tbody');
+  tbody.innerHTML = '';
+  el('gamesEmpty').hidden = games.length > 0;
+  el('gamesCount').textContent = games.length ? `(${games.length})` : '';
+  for (const game of games) {
+    const tr = document.createElement('tr');
+    const winner = game.players.find((p) => p.id === game.winnerId);
+    const playersHtml = game.players.map((p) =>
+      `<span>${escapeHtml(p.name)} — ${p.score}${p.id === game.winnerId ? ' \u{1F3C6}' : ''}</span>`
+    ).join('');
+    tr.innerHTML = `
+      <td><code>${escapeHtml(game.roomCode)}</code></td>
+      <td class="players-cell">${playersHtml}</td>
+      <td>${winner ? escapeHtml(winner.name) : '—'}</td>
+      <td>${fmtTime(game.finishedAt)} <span style="color:#999">(${escapeHtml(game.endReason)})</span></td>
+      <td>${fmtDuration(game.startedAt, game.finishedAt)}</td>
+      <td>${game.moveCount} / ${game.passCount} / ${game.exchangeCount}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+async function loadAll() {
+  try {
+    const [roomsBody, gamesBody] = await Promise.all([
+      api('/api/admin/rooms'),
+      api('/api/admin/games?limit=200'),
+    ]);
+    el('roomsSection').hidden = false;
+    el('gamesSection').hidden = false;
+    renderRooms(roomsBody.rooms);
+    renderGames(gamesBody.games);
+    setStatus(`Connected. Last updated ${new Date().toLocaleTimeString()}.`);
+    el('disconnectBtn').hidden = false;
+    sessionStorage.setItem('scrabble_admin_token', token);
+  } catch (err) {
+    stopAuto();
+    el('roomsSection').hidden = true;
+    el('gamesSection').hidden = true;
+    el('disconnectBtn').hidden = true;
+    if (err.status === 404) {
+      setStatus('Invalid token, or the admin API is not enabled on this server (ADMIN_TOKEN not set).', true);
+    } else {
+      setStatus(err.message, true);
+    }
+  }
+}
+
+async function deleteRoom(code) {
+  if (!confirm(`Delete room ${code}? This ends it immediately for everyone in it.`)) return;
+  try {
+    await api(`/api/admin/rooms/${code}`, { method: 'DELETE' });
+    loadAll();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function startAuto() {
+  stopAuto();
+  autoTimer = setInterval(loadAll, 10000);
+}
+function stopAuto() {
+  if (autoTimer) clearInterval(autoTimer);
+  autoTimer = null;
+}
+
+el('connForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const typed = el('tokenInput').value.trim();
+  if (typed) token = typed;
+  if (!token) { setStatus('Enter a token first.', true); return; }
+  loadAll().then(() => { if (el('autoRefresh').checked) startAuto(); });
+});
+
+el('disconnectBtn').addEventListener('click', () => {
+  token = '';
+  sessionStorage.removeItem('scrabble_admin_token');
+  stopAuto();
+  el('roomsSection').hidden = true;
+  el('gamesSection').hidden = true;
+  el('disconnectBtn').hidden = true;
+  el('tokenInput').value = '';
+  setStatus('Disconnected.');
+});
+
+el('refreshBtn').addEventListener('click', loadAll);
+el('autoRefresh').addEventListener('change', (e) => {
+  if (e.target.checked) startAuto(); else stopAuto();
+});
+
+// If a token was remembered from earlier this tab, reconnect automatically.
+if (token) {
+  el('tokenInput').value = token;
+  loadAll().then(() => { if (el('autoRefresh').checked) startAuto(); });
+}
+</script>
+</body>
+</html>

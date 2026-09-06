@@ -14,6 +14,7 @@ from storage import build_store_from_env
 
 BASE_DIR = Path(__file__).resolve().parent
 CLIENT_DIST = BASE_DIR.parent / 'client' / 'dist'
+ADMIN_UI_DIR = BASE_DIR / 'admin_ui'
 
 PORT = int(os.environ.get('PORT', 4000))
 FLASK_DEBUG = os.environ.get('FLASK_DEBUG', '0') == '1'
@@ -265,8 +266,18 @@ def exchange_tiles(code):
 
 
 # ---------------------------------------------------------------------------
-# Admin routes - see API.md#admin-api. All gated by require_admin (ADMIN_TOKEN).
+# Admin routes - see API.md#admin-api. All gated by require_admin (ADMIN_TOKEN),
+# EXCEPT the page below - it's static HTML/JS with no secrets baked in and no
+# way to attach an Authorization header via plain browser navigation, so it
+# has to be reachable unauthenticated; every actual admin action it takes
+# still goes through the protected /api/admin/* routes with whatever token
+# you type into it.
 # ---------------------------------------------------------------------------
+
+@app.get('/admin')
+def admin_ui():
+    return send_from_directory(ADMIN_UI_DIR, 'index.html')
+
 
 def _admin_room_summary(game):
     state = game.state_for(None)  # for_player_id=None -> nobody's rack is revealed
