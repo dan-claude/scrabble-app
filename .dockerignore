@@ -1,0 +1,20 @@
+.git
+.gitignore
+README.md
+API.md
+
+# Node
+**/node_modules
+client/dist
+
+# Python
+**/__pycache__
+**/*.pyc
+server/.venv
+server/venv
+
+# Local persistence data / logs (PERSISTENCE_BACKEND=file)
+server/data
+*.log
+.DS_Store
+.env
