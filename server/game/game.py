@@ -62,6 +62,10 @@ class Game:
         self.host_id = None
         self.winner_id = None
         self.last_activity = time.time()
+        self.created_at = time.time()
+        self.started_at = None    # set when start() is called
+        self.finished_at = None   # set when the game ends
+        self.end_reason = None    # 'went_out' | 'stalemate', set when the game ends
 
     # -- membership -----------------------------------------------------
 
@@ -100,6 +104,7 @@ class Game:
             self._fill_rack(player)
         self.status = 'playing'
         self.turn_index = 0
+        self.started_at = time.time()
         self._add_log(type='start', detail='Game started.')
 
     def _fill_rack(self, player):
@@ -394,6 +399,8 @@ class Game:
 
     def _finish_game(self, went_out_player_id):
         self.status = 'finished'
+        self.finished_at = time.time()
+        self.end_reason = 'went_out' if went_out_player_id else 'stalemate'
         leftover_total = 0
         for p in self.players:
             rack_value = sum(letter_value(l) for l in p.rack)
@@ -463,6 +470,10 @@ class Game:
             'host_id': self.host_id,
             'winner_id': self.winner_id,
             'last_activity': self.last_activity,
+            'created_at': self.created_at,
+            'started_at': self.started_at,
+            'finished_at': self.finished_at,
+            'end_reason': self.end_reason,
         }
 
     @classmethod
@@ -478,4 +489,8 @@ class Game:
         game.host_id = data.get('host_id')
         game.winner_id = data.get('winner_id')
         game.last_activity = data.get('last_activity', time.time())
+        game.created_at = data.get('created_at', game.created_at)
+        game.started_at = data.get('started_at')
+        game.finished_at = data.get('finished_at')
+        game.end_reason = data.get('end_reason')
         return game

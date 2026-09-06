@@ -101,6 +101,29 @@ so a deploy just picks up exactly where the old process left off, including ever
 racks, the bag, and the move log. See [API.md](API.md#environment-variables) for the
 full env var list.
 
+This same setting also controls whether a permanent log of *finished* games is kept
+(`GET /api/admin/games` — see below): with the default `none` nothing is ever written
+down, since that's the same "no persistence at all" mode; set `file` or `redis` and you
+get both room recovery and game history from the one setting.
+
+## Admin API
+
+`/api/admin/*` gives you a look at what's running on the server - every current room, a
+permanent log of finished games (once persistence is turned on, see above), and a way to
+force-remove a stuck or abused room. It's a separate concern from the player-facing API
+on purpose: player "tokens" are handed out to anyone who asks, by design, so they must
+never double as admin credentials.
+
+Set `ADMIN_TOKEN` to a long random secret to turn it on:
+
+```bash
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Leave it unset and every `/api/admin/*` route 404s, same as a route that was never
+defined — there's no "admin API present but locked" state to probe for. See
+[API.md](API.md#admin-api) for the full set of routes.
+
 ## Why polling, not WebSockets?
 
 Earlier versions of this app used Flask-SocketIO (WebSocket, with long-polling

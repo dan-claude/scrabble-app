@@ -25,7 +25,10 @@ from pathlib import Path
 
 class NullStore:
     """The default: persistence turned off. save/delete are no-ops, and
-    there's nothing to load, so the app starts exactly as it always has."""
+    there's nothing to load, so the app starts exactly as it always has.
+    Finished-game history is coupled to the same setting - with persistence
+    off, no history is kept either, so there's no surprise file/connection
+    created behind your back in the default (e.g. local dev) configuration."""
 
     def save_room(self, code, data):
         pass
@@ -35,6 +38,12 @@ class NullStore:
 
     def load_all(self):
         return {}
+
+    def append_finished_game(self, record):
+        pass
+
+    def list_finished_games(self, limit=100):
+        return []
 
 
 class FileStore:
@@ -49,6 +58,9 @@ class FileStore:
     def __init__(self, directory):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
+        # One append-only JSON-Lines file, kept alongside (not inside) the
+        # per-room directory so it doesn't get mistaken for a room file.
+        self._history_path = self.directory.parent / 'finished_games.jsonl'
 
     def _path(self, code):
         return self.directory / f'{code}.json'
@@ -77,14 +89,40 @@ class FileStore:
             rooms[data['room_code']] = data
         return rooms
 
+    def append_finished_game(self, record):
+        # A plain append is safe for concurrent writers here: each line is
+        # far under PIPE_BUF, so POSIX guarantees the write() itself doesn't
+        # interleave with another thread's, even without a separate lock.
+        with open(self._history_path, 'a') as f:
+            f.write(json.dumps(record) + '\n')
+
+    def list_finished_games(self, limit=100):
+        if not self._history_path.exists():
+            return []
+        games = []
+        with open(self._history_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    games.append(json.loads(line))
+                except ValueError:
+                    continue  # skip a corrupt line rather than fail the whole read
+        return games[-limit:][::-1]  # most recent first
+
 
 class RedisStore:
-    """One JSON string per room in Redis, under `key_prefix + room_code`."""
+    """One JSON string per room in Redis, under `key_prefix + room_code`,
+    plus a single capped list holding finished-game history."""
 
-    def __init__(self, url, key_prefix='scrabble:room:'):
+    HISTORY_MAX_ENTRIES = 5000  # bound Redis memory use; a file has no such cap, disk is cheap
+
+    def __init__(self, url, key_prefix='scrabble:room:', history_key='scrabble:history'):
         import redis  # imported lazily so NullStore/FileStore don't require it installed
         self.client = redis.Redis.from_url(url, decode_responses=True)
         self.key_prefix = key_prefix
+        self.history_key = history_key
 
     def _key(self, code):
         return f'{self.key_prefix}{code}'
@@ -107,6 +145,20 @@ class RedisStore:
                 continue  # skip a corrupt entry rather than crash startup over it
             rooms[data['room_code']] = data
         return rooms
+
+    def append_finished_game(self, record):
+        self.client.rpush(self.history_key, json.dumps(record))
+        self.client.ltrim(self.history_key, -self.HISTORY_MAX_ENTRIES, -1)
+
+    def list_finished_games(self, limit=100):
+        raw_entries = self.client.lrange(self.history_key, -limit, -1)
+        games = []
+        for raw in raw_entries:
+            try:
+                games.append(json.loads(raw))
+            except ValueError:
+                continue
+        return games[::-1]  # most recent first
 
 
 def build_store_from_env(base_dir):

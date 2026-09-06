@@ -1,3 +1,4 @@
+import hmac
 import os
 import threading
 import time
@@ -33,6 +34,13 @@ ROOM_CREATE_LIMIT = 5
 ROOM_CREATE_WINDOW_SECONDS = 60.0
 _room_create_log = defaultdict(deque)  # ip -> deque[timestamps within the window]
 _room_create_lock = threading.Lock()
+
+# --- admin API auth: a single shared secret, unrelated to player tokens
+# (those are handed out to anyone who asks, by design - they must never
+# double as admin credentials). Unset by default, which disables every
+# /api/admin/* route rather than leaving them open. Generate one with:
+#   python3 -c "import secrets; print(secrets.token_hex(32))"
+ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN', '')
 
 # --- periodic sweep: reaps rooms nobody is polling any more (fast check,
 # rooms.ABANDONED_ROOM_SECONDS) and rooms that have gone idle for a long time
@@ -130,6 +138,21 @@ def _get_player(game, token):
     return player
 
 
+def require_admin(fn):
+    """Gate a route behind ADMIN_TOKEN. Every failure - not configured,
+    missing header, wrong token - returns the same 404 as a route that
+    doesn't exist, rather than a 401, so an unauthenticated prober can't
+    even tell an admin API is present."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        auth = request.headers.get('Authorization', '')
+        provided = auth[7:] if auth.startswith('Bearer ') else ''
+        if not ADMIN_TOKEN or not provided or not hmac.compare_digest(provided, ADMIN_TOKEN):
+            raise ApiError('Not found.', 404)
+        return fn(*args, **kwargs)
+    return wrapper
+
+
 def _body():
     return request.get_json(silent=True) or {}
 
@@ -195,6 +218,8 @@ def start_game(code):
     game.start()
     game.touch()
     rooms.persist(game)
+    if game.status == 'finished':
+        rooms.record_finished_game(game)
     return _state_response(game, player)
 
 
@@ -207,6 +232,8 @@ def place_tiles(code):
     game.place_tiles(player.id, data.get('placements'))
     game.touch()
     rooms.persist(game)
+    if game.status == 'finished':
+        rooms.record_finished_game(game)
     return _state_response(game, player)
 
 
@@ -218,6 +245,8 @@ def pass_turn(code):
     game.pass_turn(player.id)
     game.touch()
     rooms.persist(game)
+    if game.status == 'finished':
+        rooms.record_finished_game(game)
     return _state_response(game, player)
 
 
@@ -230,7 +259,63 @@ def exchange_tiles(code):
     game.exchange_tiles(player.id, data.get('letters'))
     game.touch()
     rooms.persist(game)
+    if game.status == 'finished':
+        rooms.record_finished_game(game)
     return _state_response(game, player)
+
+
+# ---------------------------------------------------------------------------
+# Admin routes - see API.md#admin-api. All gated by require_admin (ADMIN_TOKEN).
+# ---------------------------------------------------------------------------
+
+def _admin_room_summary(game):
+    state = game.state_for(None)  # for_player_id=None -> nobody's rack is revealed
+    return {
+        'roomCode': state['roomCode'],
+        'status': state['status'],
+        'hostId': state['hostId'],
+        'winnerId': state['winnerId'],
+        'players': [
+            {'name': p['name'], 'score': p['score'], 'connected': p['connected']}
+            for p in state['players']
+        ],
+        'createdAt': game.created_at,
+        'startedAt': game.started_at,
+        'finishedAt': game.finished_at,
+        'lastActivity': game.last_activity,
+    }
+
+
+@app.get('/api/admin/rooms')
+@api_route
+@require_admin
+def admin_list_rooms():
+    return {'rooms': [_admin_room_summary(g) for g in rooms.rooms.values()]}
+
+
+@app.get('/api/admin/rooms/<code>')
+@api_route
+@require_admin
+def admin_room_detail(code):
+    game = _get_room(code)
+    return game.to_dict()
+
+
+@app.delete('/api/admin/rooms/<code>')
+@api_route
+@require_admin
+def admin_delete_room(code):
+    _get_room(code)  # raises 404 if it doesn't exist
+    rooms.delete_room(code.upper())
+    return {'deleted': code.upper()}
+
+
+@app.get('/api/admin/games')
+@api_route
+@require_admin
+def admin_list_finished_games():
+    limit = request.args.get('limit', type=int) or 100
+    return {'games': rooms.list_finished_games(limit)}
 
 
 threading.Timer(SWEEP_INTERVAL_SECONDS, _sweep_rooms).start()

@@ -313,6 +313,92 @@ Ends the round and finalizes scores in one of two ways:
 Either way, `status` becomes `"finished"` and `winnerId` is set to whichever player ends
 up with the highest score.
 
+## Admin API
+
+A small set of routes under `/api/admin/*` for looking in on the server — not part of
+the normal player-facing flow, and not linked from the client. Every route below requires
+```
+Authorization: Bearer <ADMIN_TOKEN>
+```
+where `ADMIN_TOKEN` is a secret you set yourself (see [Environment variables](#environment-variables)).
+**If `ADMIN_TOKEN` isn't set, every route under `/api/admin/*` returns `404`** — same as a
+route that doesn't exist at all — rather than being open by default. A request with no
+`Authorization` header, a malformed one, or the wrong token gets that same `404` too
+(never a `401`), so a prober can't even tell an admin API is present versus just hitting a
+path that was never a route to begin with.
+
+### `GET /api/admin/rooms`
+
+List every room the server currently has in memory (playing, in the lobby, or finished
+but not yet reaped).
+
+**Response** `200 OK`
+```ts
+{
+  rooms: Array<{
+    roomCode: string;
+    status: "lobby" | "playing" | "finished";
+    hostId: string;
+    winnerId: string | null;
+    players: Array<{ name: string; score: number; connected: boolean }>;
+    createdAt: number;    // epoch seconds, when the room was created
+    startedAt: number | null;
+    finishedAt: number | null;
+    lastActivity: number; // epoch seconds - see Room cleanup above
+  }>;
+}
+```
+No rack contents here on purpose — this is meant for a quick "what's going on right now"
+glance, not per-player debugging.
+
+### `GET /api/admin/rooms/<code>`
+
+Full internal detail on one room — everything needed to fully reconstruct it, including
+every player's actual rack (the same shape used internally for persistence; see
+[Persisting game state across restarts](README.md#persisting-game-state-across-restarts)).
+Handy for chasing down a specific "why did my move get rejected" report.
+
+**Errors:** `404` if the room doesn't exist (or the token's wrong/missing - see above).
+
+### `DELETE /api/admin/rooms/<code>`
+
+Force-remove a room immediately, instead of waiting for one of the two time-based reaps
+to get to it - e.g. to clear something stuck or being abused. Also deletes it from
+persistent storage if `PERSISTENCE_BACKEND` is configured.
+
+**Response** `200 OK`: `{ "deleted": "ABCDE" }`
+
+**Errors:** `404` if the room doesn't already exist.
+
+### `GET /api/admin/games`
+
+A permanent log of finished games, most recent first - independent of the rooms
+themselves, which still get reaped normally once everyone leaves. **Only populated when
+`PERSISTENCE_BACKEND` is `file` or `redis`** - with the default `none`, this always
+returns an empty list, by the same reasoning as [Persisting game state across
+restarts](README.md#persisting-game-state-across-restarts): no backend configured means
+nothing is written down anywhere.
+
+**Query parameters:** `limit` (default `100`)
+
+**Response** `200 OK`
+```ts
+{
+  games: Array<{
+    roomCode: string;
+    createdAt: number;
+    startedAt: number;
+    finishedAt: number;
+    endReason: "went_out" | "stalemate";
+    winnerId: string;
+    players: Array<{ id: string; name: string; score: number }>; // final scores
+    moveCount: number;
+    passCount: number;
+    exchangeCount: number;
+  }>;
+}
+```
+
 ## Environment variables
 
 | Variable | Default | Meaning |
@@ -322,6 +408,7 @@ up with the highest score.
 | `PERSISTENCE_BACKEND` | `none` | `none` / `file` / `redis` — see [README.md](README.md#persisting-game-state-across-restarts) |
 | `PERSISTENCE_FILE_DIR` | `server/data/rooms` | Only used when `PERSISTENCE_BACKEND=file` |
 | `REDIS_URL` | `redis://localhost:6379/0` | Only used when `PERSISTENCE_BACKEND=redis` |
+| `ADMIN_TOKEN` | *(unset)* | Enables `/api/admin/*` — see [Admin API](#admin-api). Generate one with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 
 ## Known limitations
 
