@@ -83,6 +83,24 @@ store for room state, e.g. Redis, to coordinate across workers — out of scope 
 Put a real reverse proxy (nginx, Caddy, etc.) in front for TLS if this is reachable
 from the open internet; gunicorn itself is only handling the app, not TLS termination.
 
+## Persisting game state across restarts
+
+By default, rooms live only in that one process's memory — a redeploy (a new process
+replacing the old one, not just a graceful reload) drops every game in progress, same as
+a crash would. Set `PERSISTENCE_BACKEND` to change that:
+
+| `PERSISTENCE_BACKEND` | What it does |
+|---|---|
+| `none` (default) | Original behavior — no persistence, nothing written or read. |
+| `file` | One JSON file per room under `PERSISTENCE_FILE_DIR` (default `server/data/rooms`). Simple, no extra infrastructure — but only useful if that directory's disk actually survives a redeploy, which is true on a plain VPS and generally **not** true on most PaaS platforms unless you've attached a persistent volume there. |
+| `redis` | One JSON value per room in Redis, at the URL in `REDIS_URL` (default `redis://localhost:6379/0`). Works anywhere, including a PaaS with an ephemeral filesystem, since the state lives in Redis instead of your app's container — most of those platforms offer a Redis add-on. |
+
+Either way, every room is saved after each action that changes it (join, start, place,
+pass, exchange) and all saved rooms are reloaded the moment the process starts back up —
+so a deploy just picks up exactly where the old process left off, including everyone's
+racks, the bag, and the move log. See [API.md](API.md#environment-variables) for the
+full env var list.
+
 ## Why polling, not WebSockets?
 
 Earlier versions of this app used Flask-SocketIO (WebSocket, with long-polling
@@ -99,7 +117,7 @@ polling.
 
 ## Notes
 
-- Game state is in-memory only (per server process) — restarting the server clears
-  active games.
+- Game state is in-memory only by default — restarting the server clears active games
+  unless you've turned on persistence (see above).
 - The dictionary is derived from an open English word list, filtered to alphabetic
   words up to 15 letters (~270k words), bundled at `server/words/dictionary.txt`.

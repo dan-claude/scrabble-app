@@ -9,3 +9,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Local FileStore persistence data (PERSISTENCE_BACKEND=file)
+server/data/

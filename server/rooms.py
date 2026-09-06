@@ -2,6 +2,7 @@ import secrets
 import time
 
 from game.game import Game, GameError  # noqa: F401  (re-exported for convenience)
+from storage import NullStore
 
 ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 ROOM_CODE_LENGTH = 5
@@ -15,8 +16,22 @@ def _generate_room_code():
 
 
 class RoomManager:
-    def __init__(self):
+    def __init__(self, store=None):
         self.rooms = {}  # room_code -> Game
+        self.store = store or NullStore()
+
+    def load_from_store(self):
+        """Reconstruct every room the store has on disk/in Redis. Call this
+        once at startup, before serving any requests, so a redeploy resumes
+        games in progress instead of losing them with the old process."""
+        restored = 0
+        for code, data in self.store.load_all().items():
+            try:
+                self.rooms[code] = Game.from_dict(data)
+                restored += 1
+            except Exception:
+                continue  # skip a room that fails to reconstruct rather than crash startup
+        return restored
 
     def create_room(self):
         if len(self.rooms) >= MAX_ROOMS:
@@ -31,6 +46,11 @@ class RoomManager:
     def get_room(self, code):
         return self.rooms.get((code or '').upper())
 
+    def persist(self, game):
+        """Save a room's full state after a mutating action. A no-op unless
+        a real store (file/redis) was configured - see storage.py."""
+        self.store.save_room(game.room_code, game.to_dict())
+
     def reap_abandoned_rooms(self, max_stale_seconds=ABANDONED_ROOM_SECONDS):
         """Remove rooms where every player has stopped polling for state (tab
         closed, browser killed, etc). There's no disconnect event under
@@ -42,6 +62,7 @@ class RoomManager:
         ]
         for code in stale:
             del self.rooms[code]
+            self.store.delete_room(code)
         return len(stale)
 
     def reap_idle_rooms(self, max_idle_seconds=IDLE_ROOM_SECONDS):
@@ -56,4 +77,5 @@ class RoomManager:
         ]
         for code in stale:
             del self.rooms[code]
+            self.store.delete_room(code)
         return len(stale)

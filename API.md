@@ -319,14 +319,17 @@ up with the highest score.
 |---|---|---|
 | `PORT` | `4000` | HTTP listen port |
 | `FLASK_DEBUG` | `0` | `1` enables Flask's debug/reloader mode (dev only) |
+| `PERSISTENCE_BACKEND` | `none` | `none` / `file` / `redis` — see [README.md](README.md#persisting-game-state-across-restarts) |
+| `PERSISTENCE_FILE_DIR` | `server/data/rooms` | Only used when `PERSISTENCE_BACKEND=file` |
+| `REDIS_URL` | `redis://localhost:6379/0` | Only used when `PERSISTENCE_BACKEND=redis` |
 
 ## Known limitations
 
 - `POST .../start` does not check that the caller is the host — the reference client
   only shows the "Start game" button to the host, but any player in the lobby could call
   it directly. Not a concern for a casual game among friends holding the same room code.
-- State is entirely in-memory; restarting the server drops all rooms and games in
-  progress.
+- State is in-memory by default; restarting the server drops all rooms and games in
+  progress unless `PERSISTENCE_BACKEND` is set (see above).
 - Polling means state updates lag by up to one poll interval (~1s in the reference
   client) instead of being pushed instantly — see [README.md](README.md) for why this
   tradeoff was made.

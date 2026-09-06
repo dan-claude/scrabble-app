@@ -30,6 +30,23 @@ class Player:
         self.score = 0
         self.last_seen = time.time()
 
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'rack': list(self.rack),
+            'score': self.score,
+            'last_seen': self.last_seen,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        player = cls(data['id'], data['name'])
+        player.rack = list(data.get('rack', []))
+        player.score = data.get('score', 0)
+        player.last_seen = data.get('last_seen', time.time())
+        return player
+
 
 class Game:
     def __init__(self, room_code):
@@ -425,3 +442,40 @@ class Game:
 
     def state_for(self, player_id):
         return self._public_state(player_id)
+
+    # -- persistence ---------------------------------------------------
+    # Captures everything needed to fully reconstruct the game (unlike
+    # _public_state, which deliberately hides each player's rack from
+    # everyone but themselves). bonus_grid isn't included - it's derived
+    # deterministically from BOARD_SIZE, so from_dict just regenerates it
+    # via the normal constructor instead of persisting a redundant copy.
+
+    def to_dict(self):
+        return {
+            'room_code': self.room_code,
+            'status': self.status,
+            'board': self.board,
+            'bag': list(self.bag),
+            'players': [p.to_dict() for p in self.players],
+            'turn_index': self.turn_index,
+            'consecutive_passes': self.consecutive_passes,
+            'log': self.log,
+            'host_id': self.host_id,
+            'winner_id': self.winner_id,
+            'last_activity': self.last_activity,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        game = cls(data['room_code'])
+        game.status = data.get('status', 'lobby')
+        game.board = data.get('board', game.board)
+        game.bag = list(data.get('bag', game.bag))
+        game.players = [Player.from_dict(p) for p in data.get('players', [])]
+        game.turn_index = data.get('turn_index', 0)
+        game.consecutive_passes = data.get('consecutive_passes', 0)
+        game.log = data.get('log', [])
+        game.host_id = data.get('host_id')
+        game.winner_id = data.get('winner_id')
+        game.last_activity = data.get('last_activity', time.time())
+        return game

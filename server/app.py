@@ -9,6 +9,7 @@ from flask import Flask, request, send_from_directory
 
 from game.game import GameError
 from rooms import RoomManager
+from storage import build_store_from_env
 
 BASE_DIR = Path(__file__).resolve().parent
 CLIENT_DIST = BASE_DIR.parent / 'client' / 'dist'
@@ -18,7 +19,13 @@ FLASK_DEBUG = os.environ.get('FLASK_DEBUG', '0') == '1'
 
 app = Flask(__name__, static_folder=None)
 
-rooms = RoomManager()
+# See storage.py: PERSISTENCE_BACKEND=none (default)/file/redis controls
+# whether rooms survive a server restart, and PERSISTENCE_FILE_DIR/REDIS_URL
+# configure the chosen backend.
+rooms = RoomManager(build_store_from_env(BASE_DIR))
+_restored = rooms.load_from_store()
+if _restored:
+    app.logger.info('Restored %d room(s) from persistent storage.', _restored)
 
 # --- simple per-IP rate limit on room creation (defends against a single
 # client flooding room creation to exhaust server memory) ---
@@ -149,6 +156,7 @@ def create_room():
     token = os.urandom(16).hex()
     player = game.add_player(token, name)
     game.touch()
+    rooms.persist(game)
     result = _state_response(game, player)
     result['token'] = token
     return result
@@ -165,6 +173,7 @@ def join_room(code):
     token = os.urandom(16).hex()
     player = game.add_player(token, name)
     game.touch()
+    rooms.persist(game)
     result = _state_response(game, player)
     result['token'] = token
     return result
@@ -185,6 +194,7 @@ def start_game(code):
     player = _get_player(game, _body().get('token'))
     game.start()
     game.touch()
+    rooms.persist(game)
     return _state_response(game, player)
 
 
@@ -196,6 +206,7 @@ def place_tiles(code):
     player = _get_player(game, data.get('token'))
     game.place_tiles(player.id, data.get('placements'))
     game.touch()
+    rooms.persist(game)
     return _state_response(game, player)
 
 
@@ -206,6 +217,7 @@ def pass_turn(code):
     player = _get_player(game, _body().get('token'))
     game.pass_turn(player.id)
     game.touch()
+    rooms.persist(game)
     return _state_response(game, player)
 
 
@@ -217,6 +229,7 @@ def exchange_tiles(code):
     player = _get_player(game, data.get('token'))
     game.exchange_tiles(player.id, data.get('letters'))
     game.touch()
+    rooms.persist(game)
     return _state_response(game, player)
 
 
