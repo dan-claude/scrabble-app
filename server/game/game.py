@@ -22,7 +22,7 @@ class GameError(Exception):
 
 
 class Player:
-    __slots__ = ('id', 'name', 'rack', 'score', 'last_seen')
+    __slots__ = ('id', 'name', 'rack', 'score', 'last_seen', 'notification_setup')
     is_spectator = False
 
     def __init__(self, token, name):
@@ -31,6 +31,10 @@ class Player:
         self.rack = []
         self.score = 0
         self.last_seen = time.time()
+        # {pluginId: {fieldKey: value}} - see notification_plugins/__init__.py.
+        # Only ever written via sanitize_setup(), so every key/value here is
+        # already known-safe by the time it lands on this object.
+        self.notification_setup = {}
 
     def to_dict(self):
         return {
@@ -39,6 +43,7 @@ class Player:
             'rack': list(self.rack),
             'score': self.score,
             'last_seen': self.last_seen,
+            'notification_setup': dict(self.notification_setup),
         }
 
     @classmethod
@@ -47,6 +52,7 @@ class Player:
         player.rack = list(data.get('rack', []))
         player.score = data.get('score', 0)
         player.last_seen = data.get('last_seen', time.time())
+        player.notification_setup = dict(data.get('notification_setup', {}))
         return player
 
 

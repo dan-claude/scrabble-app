@@ -90,6 +90,103 @@
   opacity: 0.6;
 }
 
+/* Notifications - shared markup (NotificationSettings.jsx), styled
+   differently depending on where it's mounted: a plain section inside the
+   join form vs. a white card inside the in-room side panel (see below). */
+.notify-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.lobby-form .notify-settings {
+  margin-top: 0.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid #eee;
+}
+
+.notify-settings-header {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.notify-settings-optional {
+  font-weight: 400;
+  color: #888;
+}
+
+.notify-settings-hint {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+}
+
+.notify-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.notify-field input[type='text'],
+.notify-field input:not([type]) {
+  padding: 0.55rem 0.6rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font: inherit;
+  color: inherit;
+  background: #fff;
+}
+
+.notify-field-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.notify-field-checkbox input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.notify-field-hint {
+  font-weight: 400;
+  color: #888;
+  font-size: 0.75rem;
+}
+
+.notify-field-checkbox .notify-field-hint {
+  padding-left: 1.6rem;
+}
+
+.notify-field-warning {
+  color: #c0392b;
+}
+
+.notify-save-btn {
+  align-self: flex-start;
+  padding: 0.5rem 1rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.notify-save-btn:disabled {
+  opacity: 0.6;
+}
+
+.side-panel .notify-settings {
+  background: #fff;
+  border-radius: 10px;
+  padding: 1rem;
+}
+
 .hint {
   margin-top: 1rem;
   color: #888;
@@ -120,21 +217,6 @@
 
 .muted {
   color: #888;
-}
-
-.notify-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-top: 0.5rem;
-  font-size: 0.85rem;
-  color: #555;
-  cursor: pointer;
-  user-select: none;
-}
-
-.notify-toggle input {
-  cursor: pointer;
 }
 
 .waiting-room {

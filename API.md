@@ -61,7 +61,12 @@ Create a new room and join it as the host.
 
 **Body**
 ```ts
-{ playerName: string }   // 1-20 chars after trimming; required
+{
+  playerName: string;               // 1-20 chars after trimming; required
+  notificationSetup?: {             // optional - see "Notification plugins" below
+    [pluginId: string]: { [fieldKey: string]: string };
+  };
+}
 ```
 
 **Response** `200 OK` — a `State` object (see below) plus:
@@ -97,7 +102,12 @@ room member.
 
 **Body**
 ```ts
-{ playerName: string }
+{
+  playerName: string;
+  notificationSetup?: {             // optional - see "Notification plugins" below;
+    [pluginId: string]: { [fieldKey: string]: string };  // ignored if you join as a spectator
+  };
+}
 ```
 
 **Response** `200 OK` — a `State` object plus `{ token: string }`, same shape as
@@ -106,6 +116,50 @@ room member.
 **Errors:** `404` `"Room not found."` · `400` `"Enter a name."` · `400` `"Room is full (4
 players max)."` / `"That name is already taken in this room."` (lobby joins only) ·
 `400` `"Too many spectators already watching this game (20 max)."` (spectator joins only)
+
+---
+
+### `GET /api/notification-plugins`
+
+List the notification plugins currently loaded on the server (see [Notification
+plugins](#notification-plugins) below). Public and unauthenticated on purpose — the join
+page needs this before a player has any token at all.
+
+**Response** `200 OK`
+```ts
+{
+  plugins: Array<{
+    id: string;
+    name: string;
+    description: string;
+    trigger: "client" | "server";
+    setupFields: Array<{ key: string; label: string; placeholder: string }>;
+  }>;
+}
+```
+
+---
+
+### `POST /api/rooms/<code>/notification-setup`
+
+Update a player's notification setup after they've already joined — the only path
+available to a player who reached the room via a remembered-name auto-rejoin (see
+`Lobby.jsx`), which skips the join form (and its `notificationSetup` field above)
+entirely.
+
+**Body**
+```ts
+{
+  token: string;
+  notificationSetup: { [pluginId: string]: { [fieldKey: string]: string } };
+}
+```
+
+**Response** `200 OK` — a `State` object, same as `GET .../state`.
+
+**Errors:** `404` `"Room not found."` · `401` `"Missing token."` / `"Session not found;
+please join again."` · `403` `"Spectators can't do that."` (spectators never have a turn,
+so there's nothing to be notified about)
 
 ---
 
@@ -464,6 +518,45 @@ credentials are redacted to `***:***` - only the host/port/db portion is real.
   }>;
 }
 ```
+
+## Notification plugins
+
+"Be notified when it's your turn" is implemented as a plugin system rather than a single
+hardcoded feature, so a new notification channel can be added without touching the
+route handlers above. Plugins live one per module under `server/notification_plugins/`
+and are discovered automatically at server startup (`pkgutil.iter_modules` — see that
+package's `__init__.py` for the exact contract). The only plugin shipped today is
+`browser`, which wraps the client's own `Notification` API and needs nothing from the
+server (no `send()`, no setup fields).
+
+Each plugin module exports a `PLUGIN` dict:
+
+```ts
+{
+  id: string;             // stable, unique - used as a dict key everywhere
+  name: string;           // shown to players (join page / in-room panel) and on /admin
+  description: string;    // shown to players and on /admin
+  trigger: "client" | "server";
+  setup_fields: Array<{ key: string; label?: string; placeholder?: string }>;
+}
+```
+
+- **`trigger: "client"`** — the browser handles it locally (like `browser` does with the
+  `Notification` API). The server only needs to list the plugin; it never sends anything
+  for it.
+- **`trigger: "server"`** — the plugin module also exports `send(setup, context)`, called
+  once by the server whenever `turnPlayerId` changes to a player who has that plugin
+  configured. `setup` is that player's saved values for the plugin's `setup_fields`;
+  `context` is `{ roomCode, playerId, playerName }`. A `send()` that raises is caught and
+  logged — a broken or unreachable channel never breaks gameplay.
+
+Per-player setup data (whatever a plugin's `setup_fields` collect — e.g. a phone number)
+is submitted via `notificationSetup` on `POST /api/rooms`, `POST /api/rooms/<code>/join`,
+or `POST /api/rooms/<code>/notification-setup`, shaped `{ [pluginId]: { [fieldKey]:
+value } }`. The server only ever keeps values for plugin ids and field keys it actually
+knows about — everything else in that payload is silently dropped before it's stored.
+This setup data is intentionally **not** echoed back in the `State` object; no shipped
+plugin needs to read it back, and the join/in-room forms don't pre-fill it either.
 
 ## Environment variables
 

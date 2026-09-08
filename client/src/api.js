@@ -20,12 +20,23 @@ async function apiRequest(method, path, { token, body } = {}) {
   return data;
 }
 
-export function createRoom(playerName) {
-  return apiRequest('POST', '/api/rooms', { body: { playerName } });
+export function createRoom(playerName, notificationSetup) {
+  return apiRequest('POST', '/api/rooms', { body: { playerName, notificationSetup } });
 }
 
-export function joinRoom(roomCode, playerName) {
-  return apiRequest('POST', `/api/rooms/${roomCode}/join`, { body: { playerName } });
+export function joinRoom(roomCode, playerName, notificationSetup) {
+  return apiRequest('POST', `/api/rooms/${roomCode}/join`, { body: { playerName, notificationSetup } });
+}
+
+export function getNotificationPlugins() {
+  return apiRequest('GET', '/api/notification-plugins');
+}
+
+export function updateNotificationSetup(roomCode, token, notificationSetup) {
+  return apiRequest('POST', `/api/rooms/${roomCode}/notification-setup`, {
+    token,
+    body: { notificationSetup },
+  });
 }
 
 export function fetchState(roomCode, token) {

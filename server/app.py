@@ -17,6 +17,7 @@ from game.game import (
     MAX_SPECTATORS,
     MIN_PLAYERS,
 )
+from notification_plugins import get_plugin, list_plugins, sanitize_setup, send_notification
 from rooms import ABANDONED_ROOM_SECONDS, IDLE_ROOM_SECONDS, MAX_ROOMS, ROOM_CODE_LENGTH, RoomManager
 from storage import build_store_from_env, describe_backend_from_env
 
@@ -187,6 +188,33 @@ def _state_response(game, participant):
     return payload
 
 
+def _current_turn_player_id(game):
+    return game.current_player.id if game.status == 'playing' and game.current_player else None
+
+
+def _maybe_notify_turn(game, previous_turn_player_id):
+    """Fire any server-triggered notification plugins for whoever's turn it
+    now is - but only when the turn actually just changed to them, so this is
+    safe to call after every action that could advance the turn (including
+    starting the game) without spamming a repeat notification on every call.
+    Client-triggered plugins (e.g. the browser one) need nothing from here -
+    the client already sees the new turnPlayerId in the State it gets back."""
+    new_turn_player_id = _current_turn_player_id(game)
+    if not new_turn_player_id or new_turn_player_id == previous_turn_player_id:
+        return
+    player = game.get_player(new_turn_player_id)
+    if not player:
+        return
+    for plugin_id, setup in player.notification_setup.items():
+        plugin = get_plugin(plugin_id)
+        if plugin and plugin['trigger'] == 'server':
+            send_notification(plugin_id, setup, {
+                'roomCode': game.room_code,
+                'playerId': player.id,
+                'playerName': player.name,
+            })
+
+
 # ---------------------------------------------------------------------------
 # Room / gameplay routes — see API.md for the full protocol reference
 # ---------------------------------------------------------------------------
@@ -202,6 +230,7 @@ def create_room():
     game = rooms.create_room()
     token = os.urandom(16).hex()
     player = game.add_player(token, name)
+    player.notification_setup = sanitize_setup(data.get('notificationSetup'))
     game.touch()
     rooms.persist(game)
     result = _state_response(game, player)
@@ -222,6 +251,8 @@ def join_room(code):
     # (or already finished) gets a read-only spectator instead of a flat
     # rejection - see Game.join.
     participant = game.join(token, name)
+    if not participant.is_spectator:
+        participant.notification_setup = sanitize_setup(data.get('notificationSetup'))
     game.touch()
     rooms.persist(game)
     result = _state_response(game, participant)
@@ -242,11 +273,13 @@ def room_state(code):
 def start_game(code):
     game = _get_room(code)
     player = _get_player(game, _body().get('token'))
+    previous_turn_player_id = _current_turn_player_id(game)
     game.start()
     game.touch()
     rooms.persist(game)
     if game.status == 'finished':
         rooms.record_finished_game(game)
+    _maybe_notify_turn(game, previous_turn_player_id)
     return _state_response(game, player)
 
 
@@ -256,11 +289,13 @@ def place_tiles(code):
     game = _get_room(code)
     data = _body()
     player = _get_player(game, data.get('token'))
+    previous_turn_player_id = _current_turn_player_id(game)
     game.place_tiles(player.id, data.get('placements'))
     game.touch()
     rooms.persist(game)
     if game.status == 'finished':
         rooms.record_finished_game(game)
+    _maybe_notify_turn(game, previous_turn_player_id)
     return _state_response(game, player)
 
 
@@ -269,11 +304,13 @@ def place_tiles(code):
 def pass_turn(code):
     game = _get_room(code)
     player = _get_player(game, _body().get('token'))
+    previous_turn_player_id = _current_turn_player_id(game)
     game.pass_turn(player.id)
     game.touch()
     rooms.persist(game)
     if game.status == 'finished':
         rooms.record_finished_game(game)
+    _maybe_notify_turn(game, previous_turn_player_id)
     return _state_response(game, player)
 
 
@@ -283,11 +320,40 @@ def exchange_tiles(code):
     game = _get_room(code)
     data = _body()
     player = _get_player(game, data.get('token'))
+    previous_turn_player_id = _current_turn_player_id(game)
     game.exchange_tiles(player.id, data.get('letters'))
     game.touch()
     rooms.persist(game)
     if game.status == 'finished':
         rooms.record_finished_game(game)
+    _maybe_notify_turn(game, previous_turn_player_id)
+    return _state_response(game, player)
+
+
+@app.get('/api/notification-plugins')
+@api_route
+def notification_plugins():
+    """Public and unauthenticated on purpose: the join page needs this list
+    before a player has any token at all, and the admin page reads the same
+    endpoint rather than duplicating it behind ADMIN_TOKEN."""
+    return {'plugins': list_plugins()}
+
+
+@app.post('/api/rooms/<code>/notification-setup')
+@api_route
+def update_notification_setup(code):
+    """Lets a player change their notification setup after joining - the
+    join-page form only reaches players who fill it out there, and a
+    remembered-name invite-link rejoin (see Lobby.jsx's auto-rejoin path)
+    skips that form entirely, so this is the only way those players can ever
+    reach it. Spectators are rejected the same way _get_player rejects them
+    everywhere else - a spectator never gets a turn, so there's nothing to be
+    notified about."""
+    game = _get_room(code)
+    data = _body()
+    player = _get_player(game, data.get('token'))
+    player.notification_setup = sanitize_setup(data.get('notificationSetup'))
+    rooms.persist(game)
     return _state_response(game, player)
 
 

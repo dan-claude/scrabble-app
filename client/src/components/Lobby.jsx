@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createRoom, joinRoom, loadName, saveName, saveSession } from '../api';
+import useBrowserNotifications from '../hooks/useBrowserNotifications';
+import NotificationSettings from './NotificationSettings';
 
 export default function Lobby({ onEntered }) {
   const [name, setName] = useState(() => loadName());
@@ -8,6 +10,20 @@ export default function Lobby({ onEntered }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [autoJoinName, setAutoJoinName] = useState(null); // non-null while silently rejoining via a remembered name
+
+  // One hook instance for the whole page (see the hook's own comment for
+  // why), passed down into <NotificationSettings>. A returning player who
+  // auto-rejoins via a remembered name (below) skips this form entirely, so
+  // the same setup UI is also offered from inside the room (GameRoom.jsx).
+  const browserNotify = useBrowserNotifications();
+  const [notifyValues, setNotifyValues] = useState({});
+
+  function handleNotifyFieldChange(pluginId, key, value) {
+    setNotifyValues((prev) => ({
+      ...prev,
+      [pluginId]: { ...(prev[pluginId] || {}), [key]: value },
+    }));
+  }
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -45,8 +61,8 @@ export default function Lobby({ onEntered }) {
     setBusy(true);
     try {
       const state = mode === 'create'
-        ? await createRoom(name)
-        : await joinRoom(roomCode.trim().toUpperCase(), name);
+        ? await createRoom(name, notifyValues)
+        : await joinRoom(roomCode.trim().toUpperCase(), name, notifyValues);
       const session = { roomCode: state.roomCode, token: state.token };
       saveSession(session);
       saveName(name.trim());
@@ -105,6 +121,11 @@ export default function Lobby({ onEntered }) {
         <button type="submit" disabled={busy}>
           {mode === 'create' ? 'Create room' : 'Join room'}
         </button>
+        <NotificationSettings
+          browserNotify={browserNotify}
+          values={notifyValues}
+          onChange={handleNotifyFieldChange}
+        />
       </form>
       <p className="hint">
         Create a room, then send friends the invite link (2–4 players). We'll

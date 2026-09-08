@@ -5,23 +5,20 @@ import {
   passTurn as apiPassTurn,
   placeTiles as apiPlaceTiles,
   startGame as apiStartGame,
+  updateNotificationSetup as apiUpdateNotificationSetup,
 } from '../api';
+import useBrowserNotifications from '../hooks/useBrowserNotifications';
 import Board from './Board';
 import Rack from './Rack';
 import ScoreBoard from './ScoreBoard';
 import GameLog from './GameLog';
+import NotificationSettings from './NotificationSettings';
 
 let uidCounter = 0;
 function nextUid() {
   uidCounter += 1;
   return `t${uidCounter}`;
 }
-
-// "Be notified when it is your turn" - persisted per-browser so the choice
-// survives a reload. Actually enabling it also requires the browser to have
-// granted Notification permission; see notificationsSupported/notifyEnabled
-// below for how the two combine.
-const NOTIFY_STORAGE_KEY = 'scrabble_notify_turn';
 
 export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
   const you = state.players.find((p) => p.id === state.youId);
@@ -41,18 +38,12 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
   const dragInfoRef = useRef(null);
   const justDraggedRef = useRef(false);
 
-  // Turn notifications: only offered where the browser actually supports the
-  // Notification API (excludes e.g. mobile Safari, which has none at all).
-  const notificationsSupported = typeof window !== 'undefined' && 'Notification' in window;
-  const [notifyPermission, setNotifyPermission] = useState(
-    notificationsSupported ? Notification.permission : 'unsupported'
-  );
-  const [notifyEnabled, setNotifyEnabled] = useState(() => {
-    if (!notificationsSupported) return false;
-    // Only trust the saved preference if the browser still actually has
-    // permission granted - it may have been revoked in site settings since.
-    return Notification.permission === 'granted' && localStorage.getItem(NOTIFY_STORAGE_KEY) === '1';
-  });
+  // Turn notifications: one hook instance for the whole page (see the
+  // hook's own comment for why), passed down into <NotificationSettings>.
+  const browserNotify = useBrowserNotifications();
+  const [notifySetupValues, setNotifySetupValues] = useState({});
+  const [notifySaving, setNotifySaving] = useState(false);
+  const [notifySaved, setNotifySaved] = useState(false);
   const prevIsMyTurnRef = useRef(isMyTurn);
 
   useEffect(() => {
@@ -300,25 +291,24 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
     onLeave();
   }
 
-  async function toggleTurnNotifications(e) {
-    const wantOn = e.target.checked;
-    if (!wantOn) {
-      setNotifyEnabled(false);
-      try { localStorage.setItem(NOTIFY_STORAGE_KEY, '0'); } catch { /* private mode etc - ignore */ }
-      return;
-    }
-    if (Notification.permission === 'granted') {
-      setNotifyEnabled(true);
-      try { localStorage.setItem(NOTIFY_STORAGE_KEY, '1'); } catch { /* private mode etc - ignore */ }
-      return;
-    }
-    // 'denied' resolves immediately with 'denied' again (no dialog) - the
-    // permission hint below is what tells the player why nothing happened.
-    const result = await Notification.requestPermission();
-    setNotifyPermission(result);
-    if (result === 'granted') {
-      setNotifyEnabled(true);
-      try { localStorage.setItem(NOTIFY_STORAGE_KEY, '1'); } catch { /* private mode etc - ignore */ }
+  function handleNotifyFieldChange(pluginId, key, value) {
+    setNotifySaved(false);
+    setNotifySetupValues((prev) => ({
+      ...prev,
+      [pluginId]: { ...(prev[pluginId] || {}), [key]: value },
+    }));
+  }
+
+  async function saveNotificationSetup() {
+    setNotifySaving(true);
+    try {
+      await apiUpdateNotificationSetup(session.roomCode, session.token, notifySetupValues);
+      setNotifySaved(true);
+      setTimeout(() => setNotifySaved(false), 2000);
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setNotifySaving(false);
     }
   }
 
@@ -331,7 +321,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
   useEffect(() => {
     const wasMyTurn = prevIsMyTurnRef.current;
     prevIsMyTurnRef.current = isMyTurn;
-    if (!notifyEnabled || !notificationsSupported) return;
+    if (!browserNotify.enabled || !browserNotify.supported) return;
     if (!isMyTurn || wasMyTurn) return;
     if (state.status !== 'playing' || isSpectator) return;
     if (document.visibilityState !== 'hidden') return;
@@ -351,7 +341,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
       // skip rather than break the player's actual turn over it.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMyTurn, notifyEnabled, state.status, isSpectator]);
+  }, [isMyTurn, browserNotify.enabled, browserNotify.supported, state.status, isSpectator]);
 
   const shareUrl = `${window.location.origin}${window.location.pathname}?room=${state.roomCode}`;
 
@@ -373,22 +363,6 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
           <p className="muted">Bag: {state.bagCount} tiles left</p>
           {state.spectators.length > 0 && (
             <p className="muted">👀 {state.spectators.length} watching</p>
-          )}
-          {notificationsSupported && !isSpectator && (
-            <label className="notify-toggle">
-              <input
-                type="checkbox"
-                checked={notifyEnabled}
-                onChange={toggleTurnNotifications}
-              />
-              🔔 Be notified when it is your turn
-            </label>
-          )}
-          {notificationsSupported && !isSpectator && notifyPermission === 'denied' && (
-            <p className="hint">
-              Notifications are blocked for this site — enable them in your browser's
-              site settings to turn this on.
-            </p>
           )}
         </div>
         <button className="link-btn" onClick={leaveRoom}>Leave</button>
@@ -513,6 +487,16 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
               winnerId={state.winnerId}
             />
             <GameLog log={state.log} />
+            {!isSpectator && (
+              <NotificationSettings
+                browserNotify={browserNotify}
+                values={notifySetupValues}
+                onChange={handleNotifyFieldChange}
+                onSave={saveNotificationSetup}
+                saving={notifySaving}
+                saved={notifySaved}
+              />
+            )}
           </div>
         </div>
       )}
