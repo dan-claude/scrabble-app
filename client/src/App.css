@@ -122,6 +122,21 @@
   color: #888;
 }
 
+.notify-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #555;
+  cursor: pointer;
+  user-select: none;
+}
+
+.notify-toggle input {
+  cursor: pointer;
+}
+
 .waiting-room {
   background: #fff;
   border-radius: 12px;

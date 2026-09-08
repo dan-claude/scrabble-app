@@ -17,6 +17,12 @@ function nextUid() {
   return `t${uidCounter}`;
 }
 
+// "Be notified when it is your turn" - persisted per-browser so the choice
+// survives a reload. Actually enabling it also requires the browser to have
+// granted Notification permission; see notificationsSupported/notifyEnabled
+// below for how the two combine.
+const NOTIFY_STORAGE_KEY = 'scrabble_notify_turn';
+
 export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
   const you = state.players.find((p) => p.id === state.youId);
   const isHost = state.hostId === state.youId;
@@ -34,6 +40,20 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
   const [dragVisual, setDragVisual] = useState(null); // { letter, isBlank, x, y }
   const dragInfoRef = useRef(null);
   const justDraggedRef = useRef(false);
+
+  // Turn notifications: only offered where the browser actually supports the
+  // Notification API (excludes e.g. mobile Safari, which has none at all).
+  const notificationsSupported = typeof window !== 'undefined' && 'Notification' in window;
+  const [notifyPermission, setNotifyPermission] = useState(
+    notificationsSupported ? Notification.permission : 'unsupported'
+  );
+  const [notifyEnabled, setNotifyEnabled] = useState(() => {
+    if (!notificationsSupported) return false;
+    // Only trust the saved preference if the browser still actually has
+    // permission granted - it may have been revoked in site settings since.
+    return Notification.permission === 'granted' && localStorage.getItem(NOTIFY_STORAGE_KEY) === '1';
+  });
+  const prevIsMyTurnRef = useRef(isMyTurn);
 
   useEffect(() => {
     const serverRack = you?.rack || [];
@@ -280,6 +300,59 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
     onLeave();
   }
 
+  async function toggleTurnNotifications(e) {
+    const wantOn = e.target.checked;
+    if (!wantOn) {
+      setNotifyEnabled(false);
+      try { localStorage.setItem(NOTIFY_STORAGE_KEY, '0'); } catch { /* private mode etc - ignore */ }
+      return;
+    }
+    if (Notification.permission === 'granted') {
+      setNotifyEnabled(true);
+      try { localStorage.setItem(NOTIFY_STORAGE_KEY, '1'); } catch { /* private mode etc - ignore */ }
+      return;
+    }
+    // 'denied' resolves immediately with 'denied' again (no dialog) - the
+    // permission hint below is what tells the player why nothing happened.
+    const result = await Notification.requestPermission();
+    setNotifyPermission(result);
+    if (result === 'granted') {
+      setNotifyEnabled(true);
+      try { localStorage.setItem(NOTIFY_STORAGE_KEY, '1'); } catch { /* private mode etc - ignore */ }
+    }
+  }
+
+  // Fire a browser notification the moment it becomes your turn, but only if
+  // you're not already looking at the tab (document hidden) - otherwise the
+  // in-page "Submit word / Pass" controls are notification enough. Compares
+  // against the previous isMyTurn value so this fires once on the false->true
+  // transition, not on every ~1s poll while it's already your turn, and not
+  // just from toggling the checkbox on mid-turn.
+  useEffect(() => {
+    const wasMyTurn = prevIsMyTurnRef.current;
+    prevIsMyTurnRef.current = isMyTurn;
+    if (!notifyEnabled || !notificationsSupported) return;
+    if (!isMyTurn || wasMyTurn) return;
+    if (state.status !== 'playing' || isSpectator) return;
+    if (document.visibilityState !== 'hidden') return;
+    try {
+      const notification = new Notification("It's your turn!", {
+        body: `Room ${state.roomCode} — place your tiles or pass.`,
+        icon: '/favicon.svg',
+        tag: `scrabble-turn-${state.roomCode}`,
+      });
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+    } catch {
+      // A handful of browsers (notably Chrome on Android) don't support the
+      // Notification constructor directly and require a service worker -
+      // skip rather than break the player's actual turn over it.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMyTurn, notifyEnabled, state.status, isSpectator]);
+
   const shareUrl = `${window.location.origin}${window.location.pathname}?room=${state.roomCode}`;
 
   async function copyInviteLink() {
@@ -300,6 +373,22 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
           <p className="muted">Bag: {state.bagCount} tiles left</p>
           {state.spectators.length > 0 && (
             <p className="muted">👀 {state.spectators.length} watching</p>
+          )}
+          {notificationsSupported && !isSpectator && (
+            <label className="notify-toggle">
+              <input
+                type="checkbox"
+                checked={notifyEnabled}
+                onChange={toggleTurnNotifications}
+              />
+              🔔 Be notified when it is your turn
+            </label>
+          )}
+          {notificationsSupported && !isSpectator && notifyPermission === 'denied' && (
+            <p className="hint">
+              Notifications are blocked for this site — enable them in your browser's
+              site settings to turn this on.
+            </p>
           )}
         </div>
         <button className="link-btn" onClick={leaveRoom}>Leave</button>

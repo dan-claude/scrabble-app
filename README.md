@@ -19,6 +19,9 @@ See [API.md](API.md) for the full API reference (every endpoint, payload, and er
 - Spectator mode: joining a room (e.g. via invite link) after the game has already
   started - or after it's finished - drops you into a read-only view of the board and
   scores instead of being turned away
+- Optional browser notifications ("Be notified when it is your turn") for when it
+  becomes your turn while the tab isn't focused, on browsers that support the
+  Notification API
 
 ## Project layout
 
