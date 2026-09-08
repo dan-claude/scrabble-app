@@ -99,10 +99,16 @@
   gap: 0.9rem;
 }
 
-.lobby-form .notify-settings {
+.lobby-form .notify-settings,
+.waiting-room .notify-settings {
   margin-top: 0.25rem;
   padding-top: 1rem;
   border-top: 1px solid #eee;
+  text-align: left;
+}
+
+.waiting-room .notify-settings {
+  margin-top: 1.5rem;
 }
 
 .notify-settings-header {

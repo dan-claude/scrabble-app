@@ -401,6 +401,14 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
               Or share the room code <strong>{state.roomCode}</strong> directly.
             </p>
           </div>
+          <NotificationSettings
+            browserNotify={browserNotify}
+            values={notifySetupValues}
+            onChange={handleNotifyFieldChange}
+            onSave={saveNotificationSetup}
+            saving={notifySaving}
+            saved={notifySaved}
+          />
         </div>
       )}
 
