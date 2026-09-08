@@ -16,6 +16,9 @@ See [API.md](API.md) for the full API reference (every endpoint, payload, and er
 - Pass and tile-exchange actions, end-game detection (empty rack or stalemate) with
   standard rack-value scoring adjustment
 - Reconnect support (refreshing the page resumes your seat via a token in localStorage)
+- Spectator mode: joining a room (e.g. via invite link) after the game has already
+  started - or after it's finished - drops you into a read-only view of the board and
+  scores instead of being turned away
 
 ## Project layout
 

@@ -1,4 +1,4 @@
-export default function ScoreBoard({ players, turnPlayerId, youId, hostId, winnerId }) {
+export default function ScoreBoard({ players, spectators, turnPlayerId, youId, hostId, winnerId }) {
   return (
     <div className="scoreboard">
       <h3>Players</h3>
@@ -17,6 +17,22 @@ export default function ScoreBoard({ players, turnPlayerId, youId, hostId, winne
           </li>
         ))}
       </ul>
+      {spectators && spectators.length > 0 && (
+        <>
+          <h3 className="spectators-heading">Watching</h3>
+          <ul className="spectators-list">
+            {spectators.map((s) => (
+              <li key={s.id}>
+                <span className="name">
+                  {s.name}
+                  {s.id === youId ? ' (you)' : ''}
+                  {!s.connected ? ' — offline' : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }

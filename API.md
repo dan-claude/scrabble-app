@@ -79,7 +79,21 @@ capacity right now — please try again in a bit."`
 
 ### `POST /api/rooms/<code>/join`
 
-Join an existing room in its lobby.
+Join an existing room. What you become depends on the room's `status`:
+
+- **`lobby`** — you join as a normal active player, same as anyone else who joined
+  before the game started. Subject to the usual limits: room not full (`maxPlayers`),
+  and your name not already taken (case-insensitive) by another player in the room.
+- **`playing` or `finished`** — instead of being rejected, you join as a **spectator**:
+  a read-only participant who gets the same polled `State` (board, scores, log, tile
+  counts) but never a rack, is never dealt a turn, and cannot call `start`/`place`/
+  `pass`/`exchange` (those return `403` for a spectator token). Spectator names are not
+  checked for uniqueness against players or other spectators. Capped at 20 spectators per
+  room (`"Too many spectators already watching this game (20 max)."`) purely as an abuse
+  guard.
+
+Either way, you get a `token` back and should poll `GET .../state` with it like any other
+room member.
 
 **Body**
 ```ts
@@ -87,11 +101,11 @@ Join an existing room in its lobby.
 ```
 
 **Response** `200 OK` — a `State` object plus `{ token: string }`, same shape as
-`POST /api/rooms`.
+`POST /api/rooms`. Check `isSpectator` in the response to know which you became.
 
-**Errors:** `404` `"Room not found."` · `400` `"Enter a name."` · `400` `"Game already
-in progress."` · `400` `"Room is full (4 players max)."` · `400` `"That name is already
-taken in this room."` (name comparison is case-insensitive)
+**Errors:** `404` `"Room not found."` · `400` `"Enter a name."` · `400` `"Room is full (4
+players max)."` / `"That name is already taken in this room."` (lobby joins only) ·
+`400` `"Too many spectators already watching this game (20 max)."` (spectator joins only)
 
 ---
 
@@ -110,12 +124,12 @@ token: string   // required
 **Response** `200 OK` — a `State` object.
 
 **Errors:** `404` `"Room not found."` · `401` `"Missing token."` · `401` `"Session not
-found; please join again."` (token doesn't match any player in that room — e.g. the room
-was reaped, or the token is stale/wrong)
+found; please join again."` (token doesn't match any player *or spectator* in that room —
+e.g. the room was reaped, or the token is stale/wrong)
 
-Calling this with a valid token also counts as a "heartbeat" for that player (see
-[Presence](#presence) below) — it's the only signal the server has that someone is still
-there.
+Calling this with a valid token also counts as a "heartbeat" for that player or spectator
+(see [Presence](#presence) below) — it's the only signal the server has that someone is
+still there.
 
 ---
 
@@ -133,8 +147,8 @@ to the host, but the server does not enforce that — see note in
 **Response** `200 OK` — a `State` object.
 
 **Errors:** `404` `"Room not found."` · `401` `"Missing token."` / `"Session not found;
-please join again."` · `400` `"Game already started."` · `400` `"Need at least 2 players
-to start."`
+please join again."` · `403` `"Spectators can't do that."` (a spectator's token was used) ·
+`400` `"Game already started."` · `400` `"Need at least 2 players to start."`
 
 ---
 
@@ -169,8 +183,9 @@ letter chosen.
 `"Tiles must be placed in a single row or column."` ·
 `"Placed tiles must be contiguous (no gaps)."` ·
 `"New tiles must connect to existing tiles on the board."` ·
-`"That does not form a word."` · `"\"XYZ\" is not a valid word."` · plus the `401`
-token errors shared by every action endpoint.
+`"That does not form a word."` · `"\"XYZ\" is not a valid word."` · plus the `401`/`403`
+token errors shared by every action endpoint (a spectator's token gets `403`
+`"Spectators can't do that."` from any of `start`/`place`/`pass`/`exchange`).
 
 **Scoring rules applied server-side:**
 - Letter/word bonus squares (`DL`/`TL`/`DW`/`TW`) apply only to *newly placed* tiles —
@@ -196,7 +211,7 @@ Pass the current turn without playing.
 **Response** `200 OK` — a `State` object.
 
 **Errors:** `400` `"It's not your turn."` · `400` `"Game is not in progress."` · plus the
-shared `401`/`404` errors.
+shared `401`/`403`/`404` errors.
 
 If every player passes twice in a row (`consecutive passes >= players * 2`), the game
 ends (see [Game end](#game-end)).
@@ -217,7 +232,7 @@ Discard some of your rack tiles back into the bag and draw replacements, ending 
 **Errors:** `400` `"It's not your turn."` · `400` `"Game is not in progress."` ·
 `400` `"Select at least one tile to exchange."` · `400` `"The bag is empty; you cannot
 exchange."` · `400` `"You don't have a \"X\" tile to exchange."` · plus the shared
-`401`/`404` errors.
+`401`/`403`/`404` errors.
 
 Returns the named tiles to the bag, shuffles it, draws replacements, advances the turn.
 Counts toward the pass-based game-end threshold the same way a pass does.
@@ -242,7 +257,9 @@ Every room/gameplay endpoint above returns this same shape (personalized per pla
   winnerId: string | null;             // set once status=="finished"
   log: LogEntry[];                     // most recent 50 events, oldest first
   players: PlayerView[];
-  youId: string;                       // which player this particular response is for
+  isSpectator: boolean;                // true if youId belongs to a spectator, not a player
+  spectators: SpectatorView[];
+  youId: string;                       // which player/spectator this particular response is for
   token?: string;                      // only present on POST /api/rooms and .../join
 }
 
@@ -256,6 +273,12 @@ type PlayerView = {
   rackCount: number;
   connected: boolean;       // see Presence below
   rack: string[] | null;    // only populated for the recipient's own entry; null for others
+};
+
+type SpectatorView = {
+  id: string;
+  name: string;
+  connected: boolean;       // see Presence below
 };
 
 type LogEntry = {
@@ -275,21 +298,23 @@ shows the letter it was set to play as, with `isBlank: true`.
 ## Presence
 
 There's no connect/disconnect event under polling — the server only knows a player is
-"there" because their requests keep arriving. Each player has a `last_seen` timestamp,
-updated on every request that identifies them (join, a poll, or any action). A player's
-`connected` field in `State` is simply `(now - last_seen) < 6 seconds`. With the
-reference client polling every ~1s, a healthy connection reads as `connected: true`
-continuously; a closed tab or a lost network flips it to `false` within a few seconds,
-without the server needing to be told explicitly.
+"there" because their requests keep arriving. Each player (and each spectator) has a
+`last_seen` timestamp, updated on every request that identifies them (join, a poll, or -
+for players - any action). A player or spectator's `connected` field in `State` is simply
+`(now - last_seen) < 6 seconds`. With the reference client polling every ~1s, a healthy
+connection reads as `connected: true` continuously; a closed tab or a lost network flips
+it to `false` within a few seconds, without the server needing to be told explicitly.
 
 ## Room cleanup
 
 Two independent sweeps run every 30 seconds:
 
-- **Abandoned-room reap:** if every player in a room has gone stale (no request in over
-  120 seconds — nobody is polling it any more), the room and its game state are deleted.
-  This is the replacement for the old "everyone disconnected" cleanup, just based on
-  polling recency instead of socket disconnect events.
+- **Abandoned-room reap:** if everyone in a room - players and spectators alike - has
+  gone stale (no request in over 120 seconds — nobody is polling it any more), the room
+  and its game state are deleted. This is the replacement for the old "everyone
+  disconnected" cleanup, just based on polling recency instead of socket disconnect
+  events. A spectator still polling keeps the room alive even if every player has gone
+  stale.
 - **Idle-room reap:** if a room has had no *game-affecting* action (join, start, place,
   pass, exchange) in over 6 hours — even if someone's tab is still open and quietly
   polling it — it's deleted too. This bounds memory from a lone forgotten tab
@@ -350,6 +375,7 @@ but not yet reaped).
     hostId: string;
     winnerId: string | null;
     players: Array<{ name: string; score: number; connected: boolean }>;
+    spectatorCount: number;
     createdAt: number;    // epoch seconds, when the room was created
     startedAt: number | null;
     finishedAt: number | null;

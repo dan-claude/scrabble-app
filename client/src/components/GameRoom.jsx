@@ -21,6 +21,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
   const you = state.players.find((p) => p.id === state.youId);
   const isHost = state.hostId === state.youId;
   const isMyTurn = state.turnPlayerId === state.youId;
+  const isSpectator = !!state.isSpectator;
 
   const [rackTiles, setRackTiles] = useState([]);
   const [selectedUid, setSelectedUid] = useState(null);
@@ -297,6 +298,9 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
         <div>
           <h2>Room {state.roomCode}</h2>
           <p className="muted">Bag: {state.bagCount} tiles left</p>
+          {state.spectators.length > 0 && (
+            <p className="muted">👀 {state.spectators.length} watching</p>
+          )}
         </div>
         <button className="link-btn" onClick={leaveRoom}>Leave</button>
       </header>
@@ -340,6 +344,11 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
       {state.status !== 'lobby' && (
         <div className="game-layout">
           <div className="board-area">
+            {isSpectator && (
+              <p className="spectator-banner">
+                👀 You joined after this game started — you're watching, not playing.
+              </p>
+            )}
             <Board
               board={state.board}
               bonusGrid={state.bonusGrid}
@@ -350,7 +359,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
               onDragPointerUp={handleDragPointerUp}
               onDragPointerCancel={handleDragPointerCancel}
             />
-            {state.status === 'playing' && (
+            {state.status === 'playing' && !isSpectator && (
               <>
                 <Rack
                   tiles={availableRack}
@@ -408,6 +417,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
           <div className="side-panel">
             <ScoreBoard
               players={state.players}
+              spectators={state.spectators}
               turnPlayerId={state.turnPlayerId}
               youId={state.youId}
               hostId={state.hostId}

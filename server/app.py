@@ -133,10 +133,25 @@ def _get_player(game, token):
     if not token:
         raise ApiError('Missing token.', 401)
     player = game.get_player(token)
-    if not player:
+    if player:
+        player.last_seen = time.time()
+        return player
+    if game.get_spectator(token):
+        raise ApiError("Spectators can't do that.", 403)
+    raise ApiError('Session not found; please join again.', 401)
+
+
+def _get_participant(game, token):
+    """Like _get_player, but also accepts a spectator's token - for routes
+    (state polling, and the response to /join itself) that any room member,
+    playing or just watching, needs to work."""
+    if not token:
+        raise ApiError('Missing token.', 401)
+    participant = game.get_participant(token)
+    if not participant:
         raise ApiError('Session not found; please join again.', 401)
-    player.last_seen = time.time()
-    return player
+    participant.last_seen = time.time()
+    return participant
 
 
 def require_admin(fn):
@@ -158,9 +173,9 @@ def _body():
     return request.get_json(silent=True) or {}
 
 
-def _state_response(game, player):
-    payload = game.state_for(player.id)
-    payload['youId'] = player.id
+def _state_response(game, participant):
+    payload = game.state_for(participant.id)
+    payload['youId'] = participant.id
     return payload
 
 
@@ -195,10 +210,13 @@ def join_room(code):
     if not name:
         raise GameError('Enter a name.')
     token = os.urandom(16).hex()
-    player = game.add_player(token, name)
+    # A game still in its lobby gets a real player; one that's already playing
+    # (or already finished) gets a read-only spectator instead of a flat
+    # rejection - see Game.join.
+    participant = game.join(token, name)
     game.touch()
     rooms.persist(game)
-    result = _state_response(game, player)
+    result = _state_response(game, participant)
     result['token'] = token
     return result
 
@@ -207,8 +225,8 @@ def join_room(code):
 @api_route
 def room_state(code):
     game = _get_room(code)
-    player = _get_player(game, request.args.get('token'))
-    return _state_response(game, player)
+    participant = _get_participant(game, request.args.get('token'))
+    return _state_response(game, participant)
 
 
 @app.post('/api/rooms/<code>/start')
@@ -290,6 +308,7 @@ def _admin_room_summary(game):
             {'name': p['name'], 'score': p['score'], 'connected': p['connected']}
             for p in state['players']
         ],
+        'spectatorCount': len(state['spectators']),
         'createdAt': game.created_at,
         'startedAt': game.started_at,
         'finishedAt': game.finished_at,

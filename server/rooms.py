@@ -82,14 +82,19 @@ class RoomManager:
         return self.store.list_finished_games(limit)
 
     def reap_abandoned_rooms(self, max_stale_seconds=ABANDONED_ROOM_SECONDS):
-        """Remove rooms where every player has stopped polling for state (tab
-        closed, browser killed, etc). There's no disconnect event under
-        polling, so this is the only signal that everyone has actually left."""
+        """Remove rooms where everyone - players and spectators alike - has
+        stopped polling for state (tab closed, browser killed, etc). There's no
+        disconnect event under polling, so this is the only signal that
+        everyone has actually left. Spectators count here too, so a room with
+        no active players left but someone still watching the final state
+        isn't pulled out from under them."""
         now = time.time()
-        stale = [
-            code for code, game in self.rooms.items()
-            if not game.players or all(now - p.last_seen > max_stale_seconds for p in game.players)
-        ]
+        def is_stale(game):
+            participants = [*game.players, *game.spectators]
+            if not participants:
+                return True
+            return all(now - p.last_seen > max_stale_seconds for p in participants)
+        stale = [code for code, game in self.rooms.items() if is_stale(game)]
         for code in stale:
             del self.rooms[code]
             self.store.delete_room(code)

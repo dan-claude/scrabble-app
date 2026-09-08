@@ -10,6 +10,7 @@ MAX_RACK = 7
 BINGO_BONUS = 50
 MIN_PLAYERS = 2
 MAX_PLAYERS = 4  # standard 100-tile Scrabble set gets thin past this
+MAX_SPECTATORS = 20  # generous cap; just guards against unbounded growth from abuse
 CONNECTED_TIMEOUT_SECONDS = 6  # no persistent connection under polling, so
 # "connected" is just "has polled recently" (the client polls every ~1s)
 
@@ -22,6 +23,7 @@ class GameError(Exception):
 
 class Player:
     __slots__ = ('id', 'name', 'rack', 'score', 'last_seen')
+    is_spectator = False
 
     def __init__(self, token, name):
         self.id = token
@@ -48,6 +50,29 @@ class Player:
         return player
 
 
+class Spectator:
+    """Someone viewing a room they joined after it left the lobby - no rack,
+    no score, no turn, just a read-only look at the same State object every
+    active player gets (see Game.join / Game._add_spectator)."""
+
+    __slots__ = ('id', 'name', 'last_seen')
+    is_spectator = True
+
+    def __init__(self, token, name):
+        self.id = token
+        self.name = name
+        self.last_seen = time.time()
+
+    def to_dict(self):
+        return {'id': self.id, 'name': self.name, 'last_seen': self.last_seen}
+
+    @classmethod
+    def from_dict(cls, data):
+        spectator = cls(data['id'], data['name'])
+        spectator.last_seen = data.get('last_seen', time.time())
+        return spectator
+
+
 class Game:
     def __init__(self, room_code):
         self.room_code = room_code
@@ -56,6 +81,7 @@ class Game:
         self.bonus_grid = create_bonus_grid()
         self.bag = create_tile_bag()
         self.players = []  # list[Player]
+        self.spectators = []  # list[Spectator] - joined after lobby, read-only
         self.turn_index = 0
         self.consecutive_passes = 0
         self.log = []
@@ -82,8 +108,31 @@ class Game:
             self.host_id = token
         return player
 
+    def join(self, token, name):
+        """Join a room: as an active player while it's still in the lobby, or as
+        a read-only spectator once the game has started (or already finished) -
+        see API.md#post-apiroomscodejoin."""
+        if self.status == 'lobby':
+            return self.add_player(token, name)
+        return self._add_spectator(token, name)
+
+    def _add_spectator(self, token, name):
+        if len(self.spectators) >= MAX_SPECTATORS:
+            raise GameError(f'Too many spectators already watching this game ({MAX_SPECTATORS} max).')
+        spectator = Spectator(token, name)
+        self.spectators.append(spectator)
+        return spectator
+
     def get_player(self, token):
         return next((p for p in self.players if p.id == token), None)
+
+    def get_spectator(self, token):
+        return next((s for s in self.spectators if s.id == token), None)
+
+    def get_participant(self, token):
+        """Either kind of person in this room, active player or spectator -
+        for routes (state polling) that don't need to tell them apart."""
+        return self.get_player(token) or self.get_spectator(token)
 
     def touch(self):
         """Record activity so the idle-room reaper doesn't reclaim this room."""
@@ -445,6 +494,18 @@ class Game:
                 }
                 for p in self.players
             ],
+            # A join after the lobby doesn't create a Player at all (see join()),
+            # so "is this response for a spectator" has to be answered by checking
+            # the spectator list rather than a flag on a PlayerView.
+            'isSpectator': any(s.id == for_player_id for s in self.spectators),
+            'spectators': [
+                {
+                    'id': s.id,
+                    'name': s.name,
+                    'connected': (now - s.last_seen) < CONNECTED_TIMEOUT_SECONDS,
+                }
+                for s in self.spectators
+            ],
         }
 
     def state_for(self, player_id):
@@ -464,6 +525,7 @@ class Game:
             'board': self.board,
             'bag': list(self.bag),
             'players': [p.to_dict() for p in self.players],
+            'spectators': [s.to_dict() for s in self.spectators],
             'turn_index': self.turn_index,
             'consecutive_passes': self.consecutive_passes,
             'log': self.log,
@@ -483,6 +545,7 @@ class Game:
         game.board = data.get('board', game.board)
         game.bag = list(data.get('bag', game.bag))
         game.players = [Player.from_dict(p) for p in data.get('players', [])]
+        game.spectators = [Spectator.from_dict(s) for s in data.get('spectators', [])]
         game.turn_index = data.get('turn_index', 0)
         game.consecutive_passes = data.get('consecutive_passes', 0)
         game.log = data.get('log', [])
