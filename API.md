@@ -310,19 +310,26 @@ it to `false` within a few seconds, without the server needing to be told explic
 Two independent sweeps run every 30 seconds:
 
 - **Abandoned-room reap:** if everyone in a room - players and spectators alike - has
-  gone stale (no request in over 120 seconds — nobody is polling it any more), the room
+  gone stale (no request in over 3 days — nobody is polling it any more), the room
   and its game state are deleted. This is the replacement for the old "everyone
   disconnected" cleanup, just based on polling recency instead of socket disconnect
   events. A spectator still polling keeps the room alive even if every player has gone
   stale.
 - **Idle-room reap:** if a room has had no *game-affecting* action (join, start, place,
-  pass, exchange) in over 6 hours — even if someone's tab is still open and quietly
+  pass, exchange) in over 3 days — even if someone's tab is still open and quietly
   polling it — it's deleted too. This bounds memory from a lone forgotten tab
   independently of the check above.
 
 Merely polling `GET /state` counts toward the first sweep (keeps `last_seen` fresh) but
 not the second (doesn't reset `last_activity`) — that's what lets a truly idle-but-open
 room still eventually get reaped.
+
+If either sweep reaps a room whose game was still `"playing"` (as opposed to a lobby
+that never started, or a game that had already finished normally), a summary of it is
+appended to the same permanent log [`GET /api/admin/games`](#get-apiadmingames) uses for
+normally-finished games - with `endReason` set to `"abandoned"` or `"idle_timeout"` and
+`winnerId: null` - so an in-progress game that got swept away still shows up there
+instead of disappearing with no trace.
 
 ## Game end
 
@@ -408,7 +415,10 @@ persistent storage if `PERSISTENCE_BACKEND` is configured.
 ### `GET /api/admin/games`
 
 A permanent log of finished games, most recent first - independent of the rooms
-themselves, which still get reaped normally once everyone leaves. **Only populated when
+themselves, which still get reaped normally once everyone leaves. Also includes games
+that were still in progress when [one of the two time-based reaps](#room-cleanup) swept
+their room away (`endReason: "abandoned" | "idle_timeout"`), so a game that never
+reached a normal end still shows up here instead of just vanishing. **Only populated when
 `PERSISTENCE_BACKEND` is `file` or `redis`** - with the default `none`, this always
 returns an empty list, by the same reasoning as [Persisting game state across
 restarts](README.md#persisting-game-state-across-restarts): no backend configured means
@@ -424,8 +434,9 @@ nothing is written down anywhere.
     createdAt: number;
     startedAt: number;
     finishedAt: number;
-    endReason: "went_out" | "stalemate";
-    winnerId: string;
+    endReason: "went_out" | "stalemate" | "abandoned" | "idle_timeout";
+    winnerId: string | null;      // null for "abandoned"/"idle_timeout" - the room was
+                                   // reaped mid-game, before anyone won
     players: Array<{ id: string; name: string; score: number }>; // final scores
     moveCount: number;
     passCount: number;

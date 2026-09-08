@@ -7,8 +7,8 @@ from storage import NullStore
 ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 ROOM_CODE_LENGTH = 5
 MAX_ROOMS = 1000  # hard cap on concurrent rooms, so a creation flood can't exhaust memory
-IDLE_ROOM_SECONDS = 6 * 60 * 60  # reap rooms with no game activity for this long
-ABANDONED_ROOM_SECONDS = 120  # reap rooms nobody has polled in this long (everyone left)
+IDLE_ROOM_SECONDS = 3 * 24 * 60 * 60  # reap rooms with no game activity for this long
+ABANDONED_ROOM_SECONDS = 3 * 24 * 60 * 60  # reap rooms nobody has polled in this long (everyone left)
 
 
 def _generate_room_code():
@@ -57,18 +57,14 @@ class RoomManager:
         self.rooms.pop(code, None)
         self.store.delete_room(code)
 
-    def record_finished_game(self, game):
-        """Append a small permanent summary once a game ends - independent
-        of the room itself, which still gets reaped like any other room once
-        everyone leaves. A no-op unless persistence is configured (see
-        storage.py: history is coupled to PERSISTENCE_BACKEND)."""
-        self.store.append_finished_game({
+    def _game_summary(self, game, *, finished_at, end_reason, winner_id):
+        return {
             'roomCode': game.room_code,
             'createdAt': game.created_at,
             'startedAt': game.started_at,
-            'finishedAt': game.finished_at,
-            'endReason': game.end_reason,
-            'winnerId': game.winner_id,
+            'finishedAt': finished_at,
+            'endReason': end_reason,
+            'winnerId': winner_id,
             'players': [
                 {'id': p.id, 'name': p.name, 'score': p.score}
                 for p in game.players
@@ -76,7 +72,34 @@ class RoomManager:
             'moveCount': sum(1 for e in game.log if e.get('type') == 'move'),
             'passCount': sum(1 for e in game.log if e.get('type') == 'pass'),
             'exchangeCount': sum(1 for e in game.log if e.get('type') == 'exchange'),
-        })
+        }
+
+    def record_finished_game(self, game):
+        """Append a small permanent summary once a game ends normally -
+        independent of the room itself, which still gets reaped like any
+        other room once everyone leaves. A no-op unless persistence is
+        configured (see storage.py: history is coupled to
+        PERSISTENCE_BACKEND)."""
+        self.store.append_finished_game(self._game_summary(
+            game,
+            finished_at=game.finished_at,
+            end_reason=game.end_reason,
+            winner_id=game.winner_id,
+        ))
+
+    def _record_reaped_game(self, game, reason):
+        """Log a game that was still in progress when one of the reap
+        passes below swept its room away, rather than ending the normal way
+        (see #record_finished_game) - so it still shows up in admin history
+        with `reason` (e.g. "abandoned"/"idle_timeout") instead of just
+        vanishing with no trace. Only called for games that had actually
+        started; a lobby that never got going isn't worth a history entry."""
+        self.store.append_finished_game(self._game_summary(
+            game,
+            finished_at=time.time(),
+            end_reason=reason,
+            winner_id=None,
+        ))
 
     def list_finished_games(self, limit=100):
         return self.store.list_finished_games(limit)
@@ -96,6 +119,9 @@ class RoomManager:
             return all(now - p.last_seen > max_stale_seconds for p in participants)
         stale = [code for code, game in self.rooms.items() if is_stale(game)]
         for code in stale:
+            game = self.rooms[code]
+            if game.status == 'playing':
+                self._record_reaped_game(game, 'abandoned')
             del self.rooms[code]
             self.store.delete_room(code)
         return len(stale)
@@ -111,6 +137,9 @@ class RoomManager:
             if now - game.last_activity > max_idle_seconds
         ]
         for code in stale:
+            game = self.rooms[code]
+            if game.status == 'playing':
+                self._record_reaped_game(game, 'idle_timeout')
             del self.rooms[code]
             self.store.delete_room(code)
         return len(stale)
