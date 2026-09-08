@@ -90,6 +90,15 @@
     </table>
     <div class="empty" id="gamesEmpty" hidden>No finished games recorded yet. (Requires PERSISTENCE_BACKEND=file or redis.)</div>
   </section>
+
+  <section id="paramsSection" hidden>
+    <h2><span>Parameters</span></h2>
+    <table id="paramsTable">
+      <thead><tr><th>Name</th><th>Value</th><th>Source</th><th>Description</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="empty" id="paramsEmpty" hidden>No parameters to show.</div>
+  </section>
 </main>
 
 <script>
@@ -183,16 +192,35 @@ function renderGames(games) {
   }
 }
 
+function renderParams(params) {
+  const tbody = document.querySelector('#paramsTable tbody');
+  tbody.innerHTML = '';
+  el('paramsEmpty').hidden = params.length > 0;
+  for (const param of params) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><code>${escapeHtml(param.name)}</code></td>
+      <td>${escapeHtml(String(param.value))}</td>
+      <td style="color:#999">${escapeHtml(param.source)}</td>
+      <td>${escapeHtml(param.description)}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
 async function loadAll() {
   try {
-    const [roomsBody, gamesBody] = await Promise.all([
+    const [roomsBody, gamesBody, paramsBody] = await Promise.all([
       api('/api/admin/rooms'),
       api('/api/admin/games?limit=200'),
+      api('/api/admin/params'),
     ]);
     el('roomsSection').hidden = false;
     el('gamesSection').hidden = false;
+    el('paramsSection').hidden = false;
     renderRooms(roomsBody.rooms);
     renderGames(gamesBody.games);
+    renderParams(paramsBody.params);
     setStatus(`Connected. Last updated ${new Date().toLocaleTimeString()}.`);
     el('disconnectBtn').hidden = false;
     sessionStorage.setItem('scrabble_admin_token', token);
@@ -200,6 +228,7 @@ async function loadAll() {
     stopAuto();
     el('roomsSection').hidden = true;
     el('gamesSection').hidden = true;
+    el('paramsSection').hidden = true;
     el('disconnectBtn').hidden = true;
     if (err.status === 404) {
       setStatus('Invalid token, or the admin API is not enabled on this server (ADMIN_TOKEN not set).', true);
@@ -242,6 +271,7 @@ el('disconnectBtn').addEventListener('click', () => {
   stopAuto();
   el('roomsSection').hidden = true;
   el('gamesSection').hidden = true;
+  el('paramsSection').hidden = true;
   el('disconnectBtn').hidden = true;
   el('tokenInput').value = '';
   setStatus('Disconnected.');

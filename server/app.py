@@ -8,9 +8,17 @@ from pathlib import Path
 
 from flask import Flask, request, send_from_directory
 
-from game.game import GameError
-from rooms import RoomManager
-from storage import build_store_from_env
+from game.game import (
+    BINGO_BONUS,
+    CONNECTED_TIMEOUT_SECONDS,
+    GameError,
+    MAX_PLAYERS,
+    MAX_RACK,
+    MAX_SPECTATORS,
+    MIN_PLAYERS,
+)
+from rooms import ABANDONED_ROOM_SECONDS, IDLE_ROOM_SECONDS, MAX_ROOMS, ROOM_CODE_LENGTH, RoomManager
+from storage import build_store_from_env, describe_backend_from_env
 
 BASE_DIR = Path(__file__).resolve().parent
 CLIENT_DIST = BASE_DIR.parent / 'client' / 'dist'
@@ -346,6 +354,71 @@ def admin_delete_room(code):
 def admin_list_finished_games():
     limit = request.args.get('limit', type=int) or 100
     return {'games': rooms.list_finished_games(limit)}
+
+
+def _admin_params():
+    """Every setting that affects server behavior, for display on /admin -
+    deliberately excludes ADMIN_TOKEN itself (this endpoint is gated behind
+    it), and redacts any credentials embedded in REDIS_URL rather than
+    omitting persistence config entirely."""
+    backend_info = describe_backend_from_env(BASE_DIR)
+    params = [
+        {'name': 'PORT', 'value': PORT, 'source': 'env: PORT',
+         'description': 'TCP port the server listens on.'},
+        {'name': 'FLASK_DEBUG', 'value': FLASK_DEBUG, 'source': 'env: FLASK_DEBUG',
+         'description': "Flask's debug/auto-reload mode."},
+        {'name': 'PERSISTENCE_BACKEND', 'value': backend_info['PERSISTENCE_BACKEND'],
+         'source': 'env: PERSISTENCE_BACKEND',
+         'description': 'How room state survives a restart: none, file, or redis.'},
+    ]
+    if 'PERSISTENCE_FILE_DIR' in backend_info:
+        params.append({
+            'name': 'PERSISTENCE_FILE_DIR', 'value': backend_info['PERSISTENCE_FILE_DIR'],
+            'source': 'env: PERSISTENCE_FILE_DIR',
+            'description': 'Directory holding one JSON file per room (file backend only).',
+        })
+    if 'REDIS_URL' in backend_info:
+        params.append({
+            'name': 'REDIS_URL', 'value': backend_info['REDIS_URL'],
+            'source': 'env: REDIS_URL',
+            'description': 'Redis connection string (redis backend only). Credentials redacted.',
+        })
+    params += [
+        {'name': 'ROOM_CREATE_LIMIT', 'value': ROOM_CREATE_LIMIT, 'source': 'constant',
+         'description': 'Max rooms one IP address can create within the rate-limit window.'},
+        {'name': 'ROOM_CREATE_WINDOW_SECONDS', 'value': ROOM_CREATE_WINDOW_SECONDS, 'source': 'constant',
+         'description': 'Length of the room-creation rate-limit window, in seconds.'},
+        {'name': 'SWEEP_INTERVAL_SECONDS', 'value': SWEEP_INTERVAL_SECONDS, 'source': 'constant',
+         'description': 'How often the background reaper checks for abandoned/idle rooms, in seconds.'},
+        {'name': 'ABANDONED_ROOM_SECONDS', 'value': ABANDONED_ROOM_SECONDS, 'source': 'constant',
+         'description': 'A room is reaped once every participant has stopped polling it for this long, in seconds.'},
+        {'name': 'IDLE_ROOM_SECONDS', 'value': IDLE_ROOM_SECONDS, 'source': 'constant',
+         'description': 'A room is reaped after this long with no game-affecting action, in seconds.'},
+        {'name': 'MAX_ROOMS', 'value': MAX_ROOMS, 'source': 'constant',
+         'description': 'Hard cap on concurrent rooms, to bound memory use.'},
+        {'name': 'ROOM_CODE_LENGTH', 'value': ROOM_CODE_LENGTH, 'source': 'constant',
+         'description': 'Number of characters in a generated room code.'},
+        {'name': 'MIN_PLAYERS', 'value': MIN_PLAYERS, 'source': 'constant',
+         'description': 'Minimum players required to start a game.'},
+        {'name': 'MAX_PLAYERS', 'value': MAX_PLAYERS, 'source': 'constant',
+         'description': 'Maximum players allowed in one room.'},
+        {'name': 'MAX_SPECTATORS', 'value': MAX_SPECTATORS, 'source': 'constant',
+         'description': 'Maximum spectators allowed in one room.'},
+        {'name': 'MAX_RACK', 'value': MAX_RACK, 'source': 'constant',
+         'description': 'Tiles a player holds, and can place or exchange at once.'},
+        {'name': 'BINGO_BONUS', 'value': BINGO_BONUS, 'source': 'constant',
+         'description': 'Score bonus for using all rack tiles in a single move.'},
+        {'name': 'CONNECTED_TIMEOUT_SECONDS', 'value': CONNECTED_TIMEOUT_SECONDS, 'source': 'constant',
+         'description': 'Poll recency within which a player/spectator counts as "connected", in seconds.'},
+    ]
+    return {'params': params}
+
+
+@app.get('/api/admin/params')
+@api_route
+@require_admin
+def admin_params():
+    return _admin_params()
 
 
 threading.Timer(SWEEP_INTERVAL_SECONDS, _sweep_rooms).start()

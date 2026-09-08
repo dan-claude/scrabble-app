@@ -445,6 +445,26 @@ nothing is written down anywhere.
 }
 ```
 
+### `GET /api/admin/params`
+
+Every setting that affects server behavior right now - both environment-variable-driven
+config (e.g. `PERSISTENCE_BACKEND`) and fixed constants (e.g. `MAX_ROOMS`,
+`ABANDONED_ROOM_SECONDS`) - for display on the admin page. `ADMIN_TOKEN` itself is never
+included (this route is gated behind it). If `REDIS_URL` is shown, any embedded
+credentials are redacted to `***:***` - only the host/port/db portion is real.
+
+**Response** `200 OK`
+```ts
+{
+  params: Array<{
+    name: string;         // e.g. "ABANDONED_ROOM_SECONDS"
+    value: string | number | boolean;
+    source: string;       // "env: <VAR_NAME>" or "constant"
+    description: string;
+  }>;
+}
+```
+
 ## Environment variables
 
 | Variable | Default | Meaning |

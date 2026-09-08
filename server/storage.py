@@ -171,3 +171,37 @@ def build_store_from_env(base_dir):
         url = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
         return RedisStore(url)
     return NullStore()
+
+
+def _redact_redis_url(url):
+    """redis://user:password@host:6379/0 -> redis://***:***@host:6379/0, so a
+    connection string can be shown on the admin page without leaking
+    whatever credentials are embedded in it. A URL with no credentials is
+    returned unchanged."""
+    from urllib.parse import urlsplit, urlunsplit
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return '(unparseable)'
+    if not parts.username and not parts.password:
+        return url
+    netloc = '***:***@' + (parts.hostname or '')
+    if parts.port:
+        netloc += f':{parts.port}'
+    return urlunsplit(parts._replace(netloc=netloc))
+
+
+def describe_backend_from_env(base_dir):
+    """Mirror of build_store_from_env() that returns displayable info
+    instead of constructing a store - same env vars, same defaults, kept
+    right next to build_store_from_env() so the two can't drift apart.
+    Used by the admin page's parameter list; any Redis credentials are
+    redacted rather than the whole value being hidden."""
+    backend = os.environ.get('PERSISTENCE_BACKEND', 'none').strip().lower()
+    if backend == 'file':
+        directory = os.environ.get('PERSISTENCE_FILE_DIR', str(Path(base_dir) / 'data' / 'rooms'))
+        return {'PERSISTENCE_BACKEND': backend, 'PERSISTENCE_FILE_DIR': directory}
+    if backend == 'redis':
+        url = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+        return {'PERSISTENCE_BACKEND': backend, 'REDIS_URL': _redact_redis_url(url)}
+    return {'PERSISTENCE_BACKEND': backend}
