@@ -9,6 +9,7 @@ export default function ScoreBoard({ players, spectators, turnPlayerId, youId, h
               {p.name}
               {p.id === youId ? ' (you)' : ''}
               {p.id === hostId ? ' 👑' : ''}
+              {p.isBot ? ` 🤖 (${p.botDifficulty})` : ''}
               {!p.connected ? ' — offline' : ''}
               {p.id === winnerId ? ' 🏆' : ''}
             </span>
