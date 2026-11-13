@@ -497,6 +497,50 @@ Invalidate the current user session.
 
 ---
 
+### `POST /api/rooms/<code>/link-user`
+
+Retroactively stamp a user account onto an existing player slot — for players who sign in
+while already in a room. After this call, the game will be counted in that user's history
+when it finishes, even though the player joined before signing in.
+
+**Body**
+```ts
+{
+  token: string;      // the player's room bearer token
+  userToken: string;  // the user's OAuth session token (Bearer token from sign-in)
+}
+```
+
+**Response** `200 OK`: `{}`
+
+**Errors:** `404` `"Room not found."` · `401` token errors · `400` `"Invalid user token."`
+
+---
+
+### `GET /api/auth/active-games`
+
+Return a list of non-finished rooms where the signed-in user has a player slot. Intended
+for the lobby "Resume a game" section — the returned `token` can be passed directly to
+`GET /api/rooms/<code>/state` to rejoin.
+
+**Headers:** `Authorization: Bearer <userToken>`
+
+**Response** `200 OK`
+```ts
+{
+  games: Array<{
+    roomCode: string;
+    status: "lobby" | "playing";
+    token: string;           // the player's existing room bearer token
+    players: Array<{ name: string; isBot: boolean }>;
+  }>;
+}
+```
+
+**Errors:** `401` if the user token is missing, invalid, or expired.
+
+---
+
 ### `GET /api/profile`
 
 Return the signed-in user's stats and game history. Stats are computed by scanning all

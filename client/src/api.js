@@ -97,6 +97,16 @@ export function getProfile(userToken) {
   return authRequest('GET', '/api/profile', userToken);
 }
 
+export function getActiveGames(userToken) {
+  return authRequest('GET', '/api/auth/active-games', userToken);
+}
+
+export function linkUser(roomCode, roomToken, userToken) {
+  return apiRequest('POST', `/api/rooms/${roomCode}/link-user`, {
+    body: { token: roomToken, userToken },
+  });
+}
+
 const USER_TOKEN_KEY = 'scrabble_user_token';
 
 export function saveUserToken(token) {

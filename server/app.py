@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 from functools import wraps
 from pathlib import Path
 
-from flask import Flask, redirect, request, send_from_directory, url_for
+from flask import Flask, redirect, request, send_from_directory, session as flask_session, url_for
 
 import auth
 from game.game import (
@@ -445,13 +445,17 @@ def update_notification_setup(code):
 def google_login():
     if not auth.is_configured():
         return {'error': 'Google OAuth is not configured on this server.'}, 503
+    flask_session['oauth_popup'] = request.args.get('popup') == '1'
     callback_url = url_for('google_callback', _external=True)
     return auth.google_client().authorize_redirect(callback_url)
 
 
 @app.get('/api/auth/google/callback')
 def google_callback():
+    is_popup = flask_session.pop('oauth_popup', False)
     if not auth.is_configured():
+        if is_popup:
+            return _popup_error_response()
         return redirect('/?auth_error=not_configured')
     try:
         token = auth.google_client().authorize_access_token()
@@ -464,10 +468,81 @@ def google_callback():
             picture=info.get('picture', ''),
         )
         user_token = auth.create_session(user['id'])
+        if is_popup:
+            return _popup_success_response(user_token)
         return redirect(f'/?user_token={user_token}')
     except Exception:
         app.logger.exception('OAuth callback failed')
+        if is_popup:
+            return _popup_error_response()
         return redirect('/?auth_error=1')
+
+
+def _popup_success_response(user_token):
+    origin = request.scheme + '://' + request.host
+    html = (
+        '<!doctype html><html><body><script>'
+        f'window.opener&&window.opener.postMessage({{userToken:"{user_token}"}},"{origin}");'
+        'window.close();'
+        '</script></body></html>'
+    )
+    return html, 200, {'Content-Type': 'text/html'}
+
+
+def _popup_error_response():
+    origin = request.scheme + '://' + request.host
+    html = (
+        '<!doctype html><html><body><script>'
+        f'window.opener&&window.opener.postMessage({{authError:true}},"{origin}");'
+        'window.close();'
+        '</script></body></html>'
+    )
+    return html, 200, {'Content-Type': 'text/html'}
+
+
+@app.post('/api/rooms/<code>/link-user')
+@api_route
+def link_user(code):
+    """Retroactively link a signed-in user to their existing player slot.
+    Called after a mid-game OAuth login so the game still counts in their history."""
+    game = _get_room(code)
+    data = _body()
+    player = _get_player(game, data.get('token'))
+    user = auth.get_user_by_session(data.get('userToken'), rooms.store)
+    if not user:
+        raise ApiError('Not authenticated.', 401)
+    player.user_id = user['id']
+    rooms.persist(game)
+    return {}
+
+
+@app.get('/api/auth/active-games')
+@api_route
+def active_games():
+    """Return all non-finished rooms where this user is an active player.
+    Used by the lobby to offer one-click rejoin across browsers/devices."""
+    token = request.headers.get('Authorization', '')[7:]
+    user = auth.get_user_by_session(token, rooms.store)
+    if not user:
+        raise ApiError('Not authenticated.', 401)
+    user_id = user['id']
+    result = []
+    for game in rooms.rooms.values():
+        if game.status == 'finished':
+            continue
+        for p in game.players:
+            if p.user_id == user_id:
+                result.append({
+                    'roomCode': game.room_code,
+                    'status': game.status,
+                    'token': p.id,
+                    'players': [
+                        {'name': pp.name, 'isBot': pp.is_bot}
+                        for pp in game.players
+                    ],
+                })
+                break
+    return {'games': result}
 
 
 @app.get('/api/auth/me')

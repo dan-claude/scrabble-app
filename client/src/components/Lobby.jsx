@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { createRoom, joinRoom, loadName, saveName, saveSession } from '../api';
+import { createRoom, fetchState, getActiveGames, joinRoom, loadName, saveName, saveSession } from '../api';
 import useBrowserNotifications from '../hooks/useBrowserNotifications';
 import NotificationSettings from './NotificationSettings';
 
@@ -10,6 +10,7 @@ export default function Lobby({ onEntered, userToken }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [autoJoinName, setAutoJoinName] = useState(null); // non-null while silently rejoining via a remembered name
+  const [activeGames, setActiveGames] = useState([]);
 
   // One hook instance for the whole page (see the hook's own comment for
   // why), passed down into <NotificationSettings>. A returning player who
@@ -23,6 +24,28 @@ export default function Lobby({ onEntered, userToken }) {
       ...prev,
       [pluginId]: { ...(prev[pluginId] || {}), [key]: value },
     }));
+  }
+
+  useEffect(() => {
+    if (!userToken) return;
+    getActiveGames(userToken)
+      .then((data) => setActiveGames(data.games || []))
+      .catch(() => {});
+  }, [userToken]);
+
+  async function handleRejoin(roomCode, token) {
+    setError('');
+    setBusy(true);
+    try {
+      const state = await fetchState(roomCode, token);
+      const session = { roomCode, token };
+      saveSession(session);
+      onEntered(session, state);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -89,6 +112,35 @@ export default function Lobby({ onEntered, userToken }) {
   return (
     <div className="lobby">
       <h1>Scrabble</h1>
+      {activeGames.length > 0 && (
+        <div className="active-games">
+          <h3 className="active-games-title">Resume a game</h3>
+          {activeGames.map((g) => {
+            const humanNames = g.players.filter((p) => !p.isBot).map((p) => p.name).join(', ');
+            const hasBots = g.players.some((p) => p.isBot);
+            return (
+              <div key={g.roomCode} className="active-game-row">
+                <div className="active-game-info">
+                  <span className="active-game-code">{g.roomCode}</span>
+                  <span className="active-game-players">
+                    {humanNames}{hasBots ? ' + 🤖' : ''}
+                  </span>
+                  <span className={`active-game-status active-game-status--${g.status}`}>
+                    {g.status === 'lobby' ? 'waiting' : 'in progress'}
+                  </span>
+                </div>
+                <button
+                  className="active-game-rejoin"
+                  onClick={() => handleRejoin(g.roomCode, g.token)}
+                  disabled={busy}
+                >
+                  Rejoin
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
       <div className="lobby-tabs">
         <button className={mode === 'create' ? 'active' : ''} onClick={() => setMode('create')}>
           New game

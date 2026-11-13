@@ -1,6 +1,36 @@
-export default function SignInModal({ onClose }) {
+export default function SignInModal({ onClose, onSuccess }) {
   function handleGoogle() {
-    window.location.href = '/api/auth/google';
+    const popup = window.open(
+      '/api/auth/google?popup=1',
+      'oauth_popup',
+      'width=500,height=600,left=200,top=100'
+    );
+
+    if (!popup || popup.closed) {
+      // Popup blocked — fall back to full-page redirect
+      window.location.href = '/api/auth/google';
+      return;
+    }
+
+    function handleMessage(e) {
+      if (e.origin !== window.location.origin) return;
+      if (!e.data?.userToken && !e.data?.authError) return;
+      window.removeEventListener('message', handleMessage);
+      clearInterval(closedCheck);
+      if (e.data.userToken) {
+        onSuccess(e.data.userToken);
+      }
+    }
+
+    window.addEventListener('message', handleMessage);
+
+    // Clean up listener if the user closes the popup without completing
+    const closedCheck = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(closedCheck);
+        window.removeEventListener('message', handleMessage);
+      }
+    }, 500);
   }
 
   return (

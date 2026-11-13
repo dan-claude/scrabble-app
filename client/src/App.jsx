@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { clearSession, fetchState, getMe, loadSession, loadUserToken, saveSession, saveUserToken } from './api';
+import { clearSession, fetchState, getMe, linkUser, loadSession, loadUserToken, saveSession, saveUserToken } from './api';
 import AuthButton from './components/AuthButton';
 import GameRoom from './components/GameRoom';
 import Lobby from './components/Lobby';
@@ -118,6 +118,21 @@ function App() {
     setState(payload);
   }
 
+  async function handleAuthSuccess(newUserToken) {
+    saveUserToken(newUserToken);
+    setUserToken(newUserToken);
+    setShowSignIn(false);
+    try {
+      const data = await getMe(newUserToken);
+      setUser(data.user);
+      // If we're currently in a room, stamp user_id on the existing player slot
+      // so this game counts in their history even though they signed in mid-game.
+      if (session) {
+        linkUser(session.roomCode, session.token, newUserToken).catch(() => {});
+      }
+    } catch {}
+  }
+
   function handleLogout() {
     setUser(null);
     setUserToken(null);
@@ -153,7 +168,7 @@ function App() {
     return (
       <div className="app-shell">
         {header}
-        {showSignIn && <SignInModal onClose={() => setShowSignIn(false)} />}
+        {showSignIn && <SignInModal onClose={() => setShowSignIn(false)} onSuccess={handleAuthSuccess} />}
         {rejoinFailed && <p className="error center-text">Previous session expired.</p>}
         <Lobby onEntered={handleEntered} userToken={userToken} />
       </div>
@@ -163,7 +178,7 @@ function App() {
   return (
     <div className="app-shell">
       {header}
-      {showSignIn && <SignInModal onClose={() => setShowSignIn(false)} />}
+      {showSignIn && <SignInModal onClose={() => setShowSignIn(false)} onSuccess={handleAuthSuccess} />}
       {!connected && <p className="error center-text">Reconnecting...</p>}
       <GameRoom
         state={state}
