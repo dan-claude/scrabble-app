@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { clearSession, fetchState, loadSession, saveSession } from './api';
-import Lobby from './components/Lobby';
+import { clearSession, fetchState, getMe, loadSession, loadUserToken, saveSession, saveUserToken } from './api';
+import AuthButton from './components/AuthButton';
 import GameRoom from './components/GameRoom';
+import Lobby from './components/Lobby';
+import ProfilePage from './components/ProfilePage';
+import SignInModal from './components/SignInModal';
 import './App.css';
 
 const POLL_INTERVAL_MS = 1000;
@@ -11,16 +14,31 @@ function App() {
   const [state, setState] = useState(null);
   const [rejoinFailed, setRejoinFailed] = useState(false);
   const [connected, setConnected] = useState(true);
+  const [user, setUser] = useState(null);
+  const [userToken, setUserToken] = useState(null);
+  const [showSignIn, setShowSignIn] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const pollTimerRef = useRef(null);
 
-  // On first load, try to resume a saved session. There's no separate
-  // "rejoin" call under polling - a saved token just has to be accepted by
-  // the state endpoint, same as any other poll.
-  //
-  // Also handles admin-generated rejoin links (?room=CODE&token=TOKEN): when
-  // both params are present we treat the token as an existing session rather
-  // than triggering a new join. This lets an admin recover a player whose
-  // localStorage was cleared without kicking them out of the game.
+  // Load auth session and handle OAuth callback (?user_token=TOKEN).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const oauthToken = params.get('user_token');
+    if (oauthToken) {
+      window.history.replaceState({}, '', window.location.pathname);
+      saveUserToken(oauthToken);
+      setUserToken(oauthToken);
+      getMe(oauthToken).then((data) => setUser(data.user)).catch(() => {});
+    } else {
+      const saved = loadUserToken();
+      if (saved) {
+        setUserToken(saved);
+        getMe(saved).then((data) => setUser(data.user)).catch(() => {});
+      }
+    }
+  }, []);
+
+  // On first load, try to resume a saved room session.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const linkRoom = params.get('room');
@@ -83,6 +101,7 @@ function App() {
 
   function handleEntered(newSession, initialState) {
     setRejoinFailed(false);
+    setShowProfile(false);
     setSession(newSession);
     if (initialState) setState(initialState);
   }
@@ -99,17 +118,52 @@ function App() {
     setState(payload);
   }
 
+  function handleLogout() {
+    setUser(null);
+    setUserToken(null);
+    saveUserToken(null);
+    setShowProfile(false);
+  }
+
+  const header = (
+    <div className="app-header">
+      <span className="app-header-logo">Scrabble</span>
+      <AuthButton
+        user={user}
+        onSignIn={() => setShowSignIn(true)}
+        onProfile={() => setShowProfile(true)}
+      />
+    </div>
+  );
+
+  if (showProfile) {
+    return (
+      <div className="app-shell">
+        {header}
+        <ProfilePage
+          userToken={userToken}
+          onBack={() => setShowProfile(false)}
+          onLogout={handleLogout}
+        />
+      </div>
+    );
+  }
+
   if (!session || !state) {
     return (
       <div className="app-shell">
+        {header}
+        {showSignIn && <SignInModal onClose={() => setShowSignIn(false)} />}
         {rejoinFailed && <p className="error center-text">Previous session expired.</p>}
-        <Lobby onEntered={handleEntered} />
+        <Lobby onEntered={handleEntered} userToken={userToken} />
       </div>
     );
   }
 
   return (
     <div className="app-shell">
+      {header}
+      {showSignIn && <SignInModal onClose={() => setShowSignIn(false)} />}
       {!connected && <p className="error center-text">Reconnecting...</p>}
       <GameRoom
         state={state}

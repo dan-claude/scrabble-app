@@ -22,7 +22,7 @@ class GameError(Exception):
 
 
 class Player:
-    __slots__ = ('id', 'name', 'rack', 'score', 'last_seen', 'notification_setup', 'is_bot', 'bot_difficulty')
+    __slots__ = ('id', 'name', 'rack', 'score', 'last_seen', 'notification_setup', 'is_bot', 'bot_difficulty', 'user_id')
     is_spectator = False
 
     def __init__(self, token, name, is_bot=False, bot_difficulty='hard'):
@@ -37,6 +37,7 @@ class Player:
         self.notification_setup = {}
         self.is_bot = is_bot
         self.bot_difficulty = bot_difficulty  # 'easy' | 'hard'
+        self.user_id = None  # set when the player is signed in via OAuth
 
     def to_dict(self):
         return {
@@ -48,6 +49,7 @@ class Player:
             'notification_setup': dict(self.notification_setup),
             'is_bot': self.is_bot,
             'bot_difficulty': self.bot_difficulty,
+            'user_id': self.user_id,
         }
 
     @classmethod
@@ -58,6 +60,7 @@ class Player:
         player.score = data.get('score', 0)
         player.last_seen = data.get('last_seen', time.time())
         player.notification_setup = dict(data.get('notification_setup', {}))
+        player.user_id = data.get('user_id')
         return player
 
 

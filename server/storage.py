@@ -45,6 +45,15 @@ class NullStore:
     def list_finished_games(self, limit=100):
         return []
 
+    def save_user(self, user_id, data):
+        pass
+
+    def get_user(self, user_id):
+        return None
+
+    def find_user_by_google_id(self, google_id):
+        return None
+
 
 class FileStore:
     """One JSON file per room under `directory`, named `<code>.json`.
@@ -61,6 +70,7 @@ class FileStore:
         # One append-only JSON-Lines file, kept alongside (not inside) the
         # per-room directory so it doesn't get mistaken for a room file.
         self._history_path = self.directory.parent / 'finished_games.jsonl'
+        self._users_path = self.directory.parent / 'users.json'
 
     def _path(self, code):
         return self.directory / f'{code}.json'
@@ -111,6 +121,35 @@ class FileStore:
                     continue  # skip a corrupt line rather than fail the whole read
         return games[-limit:][::-1]  # most recent first
 
+    def _load_users(self):
+        if not self._users_path.exists():
+            return {}
+        try:
+            with open(self._users_path) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
+
+    def _write_users(self, users):
+        tmp = self._users_path.with_suffix('.json.tmp')
+        with open(tmp, 'w') as f:
+            json.dump(users, f)
+        os.replace(tmp, self._users_path)
+
+    def save_user(self, user_id, data):
+        users = self._load_users()
+        users[user_id] = data
+        self._write_users(users)
+
+    def get_user(self, user_id):
+        return self._load_users().get(user_id)
+
+    def find_user_by_google_id(self, google_id):
+        for user in self._load_users().values():
+            if user.get('googleId') == google_id:
+                return user
+        return None
+
 
 class RedisStore:
     """One JSON string per room in Redis, under `key_prefix + room_code`,
@@ -159,6 +198,25 @@ class RedisStore:
             except ValueError:
                 continue
         return games[::-1]  # most recent first
+
+    def save_user(self, user_id, data):
+        self.client.hset('scrabble:users', user_id, json.dumps(data))
+        self.client.set(f'scrabble:user:google:{data["googleId"]}', user_id)
+
+    def get_user(self, user_id):
+        raw = self.client.hget('scrabble:users', user_id)
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return None
+
+    def find_user_by_google_id(self, google_id):
+        user_id = self.client.get(f'scrabble:user:google:{google_id}')
+        if not user_id:
+            return None
+        return self.get_user(user_id)
 
 
 def build_store_from_env(base_dir):

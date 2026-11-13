@@ -66,6 +66,7 @@ Create a new room and join it as the host.
   notificationSetup?: {             // optional - see "Notification plugins" below
     [pluginId: string]: { [fieldKey: string]: string };
   };
+  userToken?: string;               // optional - links this player to a signed-in account
 }
 ```
 
@@ -107,6 +108,7 @@ room member.
   notificationSetup?: {             // optional - see "Notification plugins" below;
     [pluginId: string]: { [fieldKey: string]: string };  // ignored if you join as a spectator
   };
+  userToken?: string;               // optional - links this player to a signed-in account
 }
 ```
 
@@ -437,6 +439,102 @@ Ends the round and finalizes scores in one of two ways:
 Either way, `status` becomes `"finished"` and `winnerId` is set to whichever player ends
 up with the highest score.
 
+## Auth endpoints
+
+Google OAuth sign-in. When `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are not set,
+`GET /api/auth/google` returns `503`. Once configured, sign-in links an optional user
+account to a player's room session — game history is recorded per-user and queryable via
+`GET /api/profile`. Playing without signing in is always allowed.
+
+New env vars for OAuth (see [Environment variables](#environment-variables)):
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SECRET_KEY`.
+
+### `GET /api/auth/google`
+
+Redirect the browser to Google's OAuth consent screen. Not an API endpoint — the client
+navigates there via `window.location.href`.
+
+**Redirects to** Google, then back to `/api/auth/google/callback`.
+
+**Errors:** `503` if `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are not set.
+
+---
+
+### `GET /api/auth/google/callback`
+
+OAuth callback — called by Google after the user consents. Creates or updates the user
+record, issues a user session token, and redirects to `/?user_token=<token>`. The client
+saves the token to `localStorage` and removes it from the URL.
+
+On error, redirects to `/?auth_error=1`.
+
+---
+
+### `GET /api/auth/me`
+
+Return the signed-in user's basic profile.
+
+**Headers:** `Authorization: Bearer <userToken>`
+
+**Response** `200 OK`
+```ts
+{
+  user: { id: string; name: string; email: string; picture: string };
+}
+```
+
+**Errors:** `401` if the token is missing, invalid, or expired.
+
+---
+
+### `POST /api/auth/logout`
+
+Invalidate the current user session.
+
+**Body** (or `Authorization` header): `{ userToken: string }` or `Authorization: Bearer <token>`
+
+**Response** `200 OK`: `{}`
+
+---
+
+### `GET /api/profile`
+
+Return the signed-in user's stats and game history. Stats are computed by scanning all
+finished games where this user's id appears on a player entry.
+
+**Headers:** `Authorization: Bearer <userToken>`
+
+**Response** `200 OK`
+```ts
+{
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    picture: string;
+    createdAt: number;  // epoch seconds
+  };
+  stats: {
+    gamesPlayed: number;
+    wins: number;
+    winRate: number;        // 0-100, integer
+    avgScore: number;       // integer
+    bestScore: number;
+    recentGames: Array<{
+      roomCode: string;
+      finishedAt: number | null;
+      myScore: number;
+      won: boolean;
+      players: Array<{ name: string; score: number; isBot: boolean }>;
+    }>;                     // most recent 20
+  };
+}
+```
+
+**Errors:** `401` if the token is missing, invalid, or expired.
+
+---
+
 ## Admin API
 
 A small set of routes under `/api/admin/*` for looking in on the server — not part of
@@ -548,7 +646,7 @@ nothing is written down anywhere.
     endReason: "went_out" | "stalemate" | "abandoned" | "idle_timeout";
     winnerId: string | null;      // null for "abandoned"/"idle_timeout" - the room was
                                    // reaped mid-game, before anyone won
-    players: Array<{ id: string; name: string; score: number }>; // final scores
+    players: Array<{ id: string; name: string; score: number; userId: string | null; isBot: boolean }>;
     moveCount: number;
     passCount: number;
     exchangeCount: number;
@@ -625,6 +723,9 @@ plugin needs to read it back, and the join/in-room forms don't pre-fill it eithe
 | `PERSISTENCE_FILE_DIR` | `server/data/rooms` | Only used when `PERSISTENCE_BACKEND=file` |
 | `REDIS_URL` | `redis://localhost:6379/0` | Only used when `PERSISTENCE_BACKEND=redis` |
 | `ADMIN_TOKEN` | *(unset)* | Enables `/api/admin/*` — see [Admin API](#admin-api). Generate one with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
+| `GOOGLE_CLIENT_ID` | *(unset)* | Google OAuth client ID — from Google Cloud Console. OAuth routes return `503` if unset. |
+| `GOOGLE_CLIENT_SECRET` | *(unset)* | Google OAuth client secret — from Google Cloud Console. |
+| `SECRET_KEY` | *(random per restart)* | Signs Flask session cookies used by the OAuth state check. Set a stable value in production so in-flight logins survive restarts. Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 
 ## Known limitations
 

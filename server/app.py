@@ -6,8 +6,9 @@ from collections import defaultdict, deque
 from functools import wraps
 from pathlib import Path
 
-from flask import Flask, request, send_from_directory
+from flask import Flask, redirect, request, send_from_directory, url_for
 
+import auth
 from game.game import (
     BINGO_BONUS,
     CONNECTED_TIMEOUT_SECONDS,
@@ -30,6 +31,7 @@ PORT = int(os.environ.get('PORT', 4000))
 FLASK_DEBUG = os.environ.get('FLASK_DEBUG', '0') == '1'
 
 app = Flask(__name__, static_folder=None)
+auth.init_app(app)
 
 # See storage.py: PERSISTENCE_BACKEND=none (default)/file/redis controls
 # whether rooms survive a server restart, and PERSISTENCE_FILE_DIR/REDIS_URL
@@ -271,6 +273,9 @@ def create_room():
     token = os.urandom(16).hex()
     player = game.add_player(token, name)
     player.notification_setup = sanitize_setup(data.get('notificationSetup'))
+    user = auth.get_user_by_session(data.get('userToken'), rooms.store)
+    if user:
+        player.user_id = user['id']
     game.touch()
     rooms.persist(game)
     result = _state_response(game, player)
@@ -293,6 +298,9 @@ def join_room(code):
     participant = game.join(token, name)
     if not participant.is_spectator:
         participant.notification_setup = sanitize_setup(data.get('notificationSetup'))
+        user = auth.get_user_by_session(data.get('userToken'), rooms.store)
+        if user:
+            participant.user_id = user['id']
     game.touch()
     rooms.persist(game)
     result = _state_response(game, participant)
@@ -427,6 +435,73 @@ def update_notification_setup(code):
     player.notification_setup = sanitize_setup(data.get('notificationSetup'))
     rooms.persist(game)
     return _state_response(game, player)
+
+
+# ---------------------------------------------------------------------------
+# Auth routes
+# ---------------------------------------------------------------------------
+
+@app.get('/api/auth/google')
+def google_login():
+    if not auth.is_configured():
+        return {'error': 'Google OAuth is not configured on this server.'}, 503
+    callback_url = url_for('google_callback', _external=True)
+    return auth.google_client().authorize_redirect(callback_url)
+
+
+@app.get('/api/auth/google/callback')
+def google_callback():
+    if not auth.is_configured():
+        return redirect('/?auth_error=not_configured')
+    try:
+        token = auth.google_client().authorize_access_token()
+        info = token.get('userinfo') or {}
+        user = auth.find_or_create_user(
+            rooms.store,
+            google_id=info.get('sub', ''),
+            email=info.get('email', ''),
+            name=info.get('name', info.get('email', 'Player')),
+            picture=info.get('picture', ''),
+        )
+        user_token = auth.create_session(user['id'])
+        return redirect(f'/?user_token={user_token}')
+    except Exception:
+        app.logger.exception('OAuth callback failed')
+        return redirect('/?auth_error=1')
+
+
+@app.get('/api/auth/me')
+@api_route
+def auth_me():
+    token = request.headers.get('Authorization', '')[7:]  # strip 'Bearer '
+    user = auth.get_user_by_session(token, rooms.store)
+    if not user:
+        raise ApiError('Not authenticated.', 401)
+    return {'user': {k: user[k] for k in ('id', 'name', 'email', 'picture')}}
+
+
+@app.post('/api/auth/logout')
+@api_route
+def auth_logout():
+    token = (_body().get('userToken') or
+             request.headers.get('Authorization', '')[7:])
+    auth.delete_session(token)
+    return {}
+
+
+@app.get('/api/profile')
+@api_route
+def profile():
+    token = request.headers.get('Authorization', '')[7:]
+    user = auth.get_user_by_session(token, rooms.store)
+    if not user:
+        raise ApiError('Not authenticated.', 401)
+    all_games = rooms.list_finished_games(limit=10000)
+    stats = auth.compute_stats(user['id'], all_games)
+    return {
+        'user': {k: user[k] for k in ('id', 'name', 'email', 'picture', 'createdAt')},
+        'stats': stats,
+    }
 
 
 # ---------------------------------------------------------------------------

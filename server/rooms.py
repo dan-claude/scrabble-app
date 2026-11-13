@@ -66,7 +66,8 @@ class RoomManager:
             'endReason': end_reason,
             'winnerId': winner_id,
             'players': [
-                {'id': p.id, 'name': p.name, 'score': p.score}
+                {'id': p.id, 'name': p.name, 'score': p.score,
+                 'userId': p.user_id, 'isBot': p.is_bot}
                 for p in game.players
             ],
             'moveCount': sum(1 for e in game.log if e.get('type') == 'move'),

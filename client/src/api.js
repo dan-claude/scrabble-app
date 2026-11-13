@@ -20,12 +20,12 @@ async function apiRequest(method, path, { token, body } = {}) {
   return data;
 }
 
-export function createRoom(playerName, notificationSetup) {
-  return apiRequest('POST', '/api/rooms', { body: { playerName, notificationSetup } });
+export function createRoom(playerName, notificationSetup, userToken) {
+  return apiRequest('POST', '/api/rooms', { body: { playerName, notificationSetup, userToken } });
 }
 
-export function joinRoom(roomCode, playerName, notificationSetup) {
-  return apiRequest('POST', `/api/rooms/${roomCode}/join`, { body: { playerName, notificationSetup } });
+export function joinRoom(roomCode, playerName, notificationSetup, userToken) {
+  return apiRequest('POST', `/api/rooms/${roomCode}/join`, { body: { playerName, notificationSetup, userToken } });
 }
 
 export function getNotificationPlugins() {
@@ -66,6 +66,52 @@ export function passTurn(roomCode, token) {
 export function exchangeTiles(roomCode, token, letters) {
   return apiRequest('POST', `/api/rooms/${roomCode}/exchange`, { token, body: { letters } });
 }
+
+// ---------------------------------------------------------------------------
+// Auth API
+// ---------------------------------------------------------------------------
+
+function authHeaders(userToken) {
+  return userToken ? { Authorization: `Bearer ${userToken}` } : {};
+}
+
+async function authRequest(method, path, userToken, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json', ...authHeaders(userToken) } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  let data = null;
+  try { data = await res.json(); } catch {}
+  if (!res.ok) throw new Error(data?.error || 'Request failed.');
+  return data;
+}
+
+export function getMe(userToken) {
+  return authRequest('GET', '/api/auth/me', userToken);
+}
+
+export function logout(userToken) {
+  return authRequest('POST', '/api/auth/logout', userToken);
+}
+
+export function getProfile(userToken) {
+  return authRequest('GET', '/api/profile', userToken);
+}
+
+const USER_TOKEN_KEY = 'scrabble_user_token';
+
+export function saveUserToken(token) {
+  if (token) {
+    localStorage.setItem(USER_TOKEN_KEY, token);
+  } else {
+    localStorage.removeItem(USER_TOKEN_KEY);
+  }
+}
+
+export function loadUserToken() {
+  try { return localStorage.getItem(USER_TOKEN_KEY) || null; } catch { return null; }
+}
+
+// ---------------------------------------------------------------------------
 
 const SESSION_KEY = 'scrabble_session';
 

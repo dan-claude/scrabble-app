@@ -3,7 +3,7 @@ import { createRoom, joinRoom, loadName, saveName, saveSession } from '../api';
 import useBrowserNotifications from '../hooks/useBrowserNotifications';
 import NotificationSettings from './NotificationSettings';
 
-export default function Lobby({ onEntered }) {
+export default function Lobby({ onEntered, userToken }) {
   const [name, setName] = useState(() => loadName());
   const [roomCode, setRoomCode] = useState('');
   const [mode, setMode] = useState('create');
@@ -42,7 +42,7 @@ export default function Lobby({ onEntered }) {
     const rememberedName = loadName();
     if (!rememberedName) return;
     setAutoJoinName(rememberedName);
-    joinRoom(code, rememberedName)
+    joinRoom(code, rememberedName, {}, userToken)
       .then((state) => {
         const session = { roomCode: state.roomCode, token: state.token };
         saveSession(session);
@@ -64,8 +64,8 @@ export default function Lobby({ onEntered }) {
     setBusy(true);
     try {
       const state = mode === 'create'
-        ? await createRoom(name, notifyValues)
-        : await joinRoom(roomCode.trim().toUpperCase(), name, notifyValues);
+        ? await createRoom(name, notifyValues, userToken)
+        : await joinRoom(roomCode.trim().toUpperCase(), name, notifyValues, userToken);
       const session = { roomCode: state.roomCode, token: state.token };
       saveSession(session);
       saveName(name.trim());
