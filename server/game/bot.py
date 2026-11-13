@@ -19,17 +19,21 @@ from .tiles import letter_value
 
 BOT_NAME = 'Bot'
 
+# Easy bots only play short words — common vocabulary, nothing obscure.
+EASY_MAX_WORD_LENGTH = 6
+
 
 def make_bot_token():
     return 'bot_' + os.urandom(12).hex()
 
 
-def find_best_move(game):
+def find_best_move(game, difficulty='hard'):
     """
     Return one of:
       {'action': 'place', 'placements': [...]}
       {'action': 'exchange', 'letters': [...]}
       {'action': 'pass'}
+    difficulty: 'easy' restricts to words <= EASY_MAX_WORD_LENGTH letters.
     """
     player = game.current_player
     rack = list(player.rack)
@@ -38,7 +42,7 @@ def find_best_move(game):
     best_placements = None
     best_score = -1
 
-    for placements, score in _all_valid_placements(game, rack, is_first):
+    for placements, score in _all_valid_placements(game, rack, is_first, difficulty):
         if score > best_score:
             best_score = score
             best_placements = placements
@@ -56,7 +60,9 @@ def find_best_move(game):
 # Placement search
 # ---------------------------------------------------------------------------
 
-def _all_valid_placements(game, rack, is_first):
+def _all_valid_placements(game, rack, is_first, difficulty='hard'):
+    max_len = EASY_MAX_WORD_LENGTH if difficulty == 'easy' else BOARD_SIZE
+
     # Pre-filter dictionary: only words whose required letters are a subset of
     # (rack + every letter currently on the board). Blanks cover anything.
     board_letters = Counter(
@@ -69,7 +75,7 @@ def _all_valid_placements(game, rack, is_first):
 
     candidates = []
     for word in DICTIONARY:
-        if len(word) < 2 or len(word) > BOARD_SIZE:
+        if len(word) < 2 or len(word) > max_len:
             continue
         wc = Counter(word)
         deficit = 0
@@ -80,10 +86,10 @@ def _all_valid_placements(game, rack, is_first):
 
     for direction in ('h', 'v'):
         for line_idx in range(BOARD_SIZE):
-            yield from _search_line(game, rack, candidates, line_idx, direction, is_first)
+            yield from _search_line(game, rack, candidates, line_idx, direction, is_first, max_len)
 
 
-def _search_line(game, rack, candidates, line_idx, direction, is_first):
+def _search_line(game, rack, candidates, line_idx, direction, is_first, max_len=BOARD_SIZE):
     if direction == 'h':
         fixed_on_line = {c: game.board[line_idx][c] for c in range(BOARD_SIZE) if game.board[line_idx][c]}
     else:

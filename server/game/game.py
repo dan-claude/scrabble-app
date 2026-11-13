@@ -22,10 +22,10 @@ class GameError(Exception):
 
 
 class Player:
-    __slots__ = ('id', 'name', 'rack', 'score', 'last_seen', 'notification_setup', 'is_bot')
+    __slots__ = ('id', 'name', 'rack', 'score', 'last_seen', 'notification_setup', 'is_bot', 'bot_difficulty')
     is_spectator = False
 
-    def __init__(self, token, name, is_bot=False):
+    def __init__(self, token, name, is_bot=False, bot_difficulty='hard'):
         self.id = token
         self.name = name
         self.rack = []
@@ -36,6 +36,7 @@ class Player:
         # already known-safe by the time it lands on this object.
         self.notification_setup = {}
         self.is_bot = is_bot
+        self.bot_difficulty = bot_difficulty  # 'easy' | 'hard'
 
     def to_dict(self):
         return {
@@ -46,11 +47,13 @@ class Player:
             'last_seen': self.last_seen,
             'notification_setup': dict(self.notification_setup),
             'is_bot': self.is_bot,
+            'bot_difficulty': self.bot_difficulty,
         }
 
     @classmethod
     def from_dict(cls, data):
-        player = cls(data['id'], data['name'], is_bot=data.get('is_bot', False))
+        player = cls(data['id'], data['name'], is_bot=data.get('is_bot', False),
+                     bot_difficulty=data.get('bot_difficulty', 'hard'))
         player.rack = list(data.get('rack', []))
         player.score = data.get('score', 0)
         player.last_seen = data.get('last_seen', time.time())
@@ -116,12 +119,14 @@ class Game:
             self.host_id = token
         return player
 
-    def add_bot(self, token, name):
+    def add_bot(self, token, name, difficulty='hard'):
         if self.status != 'lobby':
             raise GameError('Game already in progress.')
         if len(self.players) >= MAX_PLAYERS:
             raise GameError(f'Room is full ({MAX_PLAYERS} players max).')
-        player = Player(token, name, is_bot=True)
+        if difficulty not in ('easy', 'hard'):
+            difficulty = 'hard'
+        player = Player(token, name, is_bot=True, bot_difficulty=difficulty)
         self.players.append(player)
         return player
 
@@ -519,6 +524,7 @@ class Game:
                     'connected': (now - p.last_seen) < CONNECTED_TIMEOUT_SECONDS,
                     'rack': p.rack if p.id == for_player_id else None,
                     'isBot': p.is_bot,
+                    'botDifficulty': p.bot_difficulty if p.is_bot else None,
                 }
                 for p in self.players
             ],

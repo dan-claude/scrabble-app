@@ -47,8 +47,8 @@ export function startGame(roomCode, token) {
   return apiRequest('POST', `/api/rooms/${roomCode}/start`, { token });
 }
 
-export function addBot(roomCode, token) {
-  return apiRequest('POST', `/api/rooms/${roomCode}/add-bot`, { token });
+export function addBot(roomCode, token, difficulty) {
+  return apiRequest('POST', `/api/rooms/${roomCode}/add-bot`, { token, body: { difficulty } });
 }
 
 export function removeBot(roomCode, token, botId) {

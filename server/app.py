@@ -213,7 +213,7 @@ def _maybe_play_bot(game):
         bot_id = g.current_player.id
         prev = _current_turn_player_id(g)
         try:
-            move = find_best_move(g)
+            move = find_best_move(g, difficulty=g.current_player.bot_difficulty)
             if move['action'] == 'place':
                 g.place_tiles(bot_id, move['placements'])
             elif move['action'] == 'exchange':
@@ -390,7 +390,8 @@ def add_bot(code):
     player = _get_player(game, _body().get('token'))
     if player.id != game.host_id:
         raise ApiError('Only the host can add bots.', 403)
-    game.add_bot(make_bot_token(), BOT_NAME)
+    difficulty = _body().get('difficulty', 'hard')
+    game.add_bot(make_bot_token(), BOT_NAME, difficulty)
     game.touch()
     rooms.persist(game)
     return _state_response(game, player)

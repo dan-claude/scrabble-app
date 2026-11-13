@@ -288,11 +288,11 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
     }
   }
 
-  async function addBot() {
+  async function addBot(difficulty) {
     setBusy(true);
     setMessage('');
     try {
-      const updated = await apiAddBot(session.roomCode, session.token);
+      const updated = await apiAddBot(session.roomCode, session.token, difficulty);
       onStateUpdate(updated);
     } catch (err) {
       setMessage(err.message);
@@ -403,7 +403,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
             {state.players.map((p) => (
               <li key={p.id}>
                 {p.name}
-                {p.isBot ? ' 🤖' : ''}
+                {p.isBot ? ` 🤖 (${p.botDifficulty})` : ''}
                 {p.id === state.hostId ? ' (host)' : ''}
                 {isHost && p.isBot && (
                   <button
@@ -419,9 +419,10 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
             ))}
           </ul>
           {isHost && state.players.length < state.maxPlayers && (
-            <button onClick={addBot} disabled={busy} style={{ marginBottom: '8px' }}>
-              + Add bot
-            </button>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+              <button onClick={() => addBot('easy')} disabled={busy}>+ Add easy bot</button>
+              <button onClick={() => addBot('hard')} disabled={busy}>+ Add hard bot</button>
+            </div>
           )}
           {message && <p className="error">{message}</p>}
           {isHost ? (
