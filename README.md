@@ -112,6 +112,72 @@ This same setting also controls whether a permanent log of *finished* games is k
 down, since that's the same "no persistence at all" mode; set `file` or `redis` and you
 get both room recovery and game history from the one setting.
 
+## Google OAuth (player accounts)
+
+Players can optionally sign in with Google to track their game history and stats. This is
+completely optional — anonymous play always works without any config at all.
+
+### 1. Create a Google OAuth client
+
+1. Go to [Google Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials).
+2. Click **Create credentials → OAuth client ID**.
+3. Choose **Web application**.
+4. Under **Authorized redirect URIs**, add:
+   - Local dev: `http://localhost:4000/api/auth/google/callback`
+   - Production: `https://yourdomain.com/api/auth/google/callback`
+5. Copy the **Client ID** and **Client Secret**.
+
+### 2. Set environment variables
+
+```bash
+export GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+export GOOGLE_CLIENT_SECRET=your-client-secret
+export SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+```
+
+`SECRET_KEY` signs the OAuth state cookie that protects against CSRF during the login
+flow. Any random 32-byte hex value works — generate a fresh one and keep it stable in
+production (if you change it, any in-flight logins at that moment will fail and need to
+restart the sign-in).
+
+In production, set all three as environment variables in whatever you use to run the
+server (systemd unit, Dockerfile `ENV`, PaaS config, etc.).
+
+### 3. User data persistence
+
+User accounts (email, name, picture) and game history stats are stored using the same
+`PERSISTENCE_BACKEND` setting as room state:
+
+| `PERSISTENCE_BACKEND` | Where user accounts are stored |
+|---|---|
+| `none` (default) | In-memory only — accounts survive as long as the process runs, lost on restart. Fine for local dev. |
+| `file` | `server/data/users.json` alongside room files. |
+| `redis` | `scrabble:users` hash in Redis. |
+
+For production, set `PERSISTENCE_BACKEND=file` or `PERSISTENCE_BACKEND=redis` so
+accounts persist across restarts — otherwise players lose their history every deploy.
+
+### How it works
+
+- A **Sign in** button in the top-right corner opens a modal with the Google sign-in
+  option. More providers can be added without changing the header layout.
+- Sign-in opens in a **popup** so you don't lose your place in the lobby or in a game;
+  if popups are blocked it falls back to a full-page redirect.
+- **Signing in mid-game** is fully supported — the player's existing game seat is linked
+  to their account retroactively, so the game counts in their history.
+- The **lobby** shows a "Resume a game" section for logged-in players — any active room
+  they're a player in can be rejoined in one click.
+- Clicking the avatar chip after sign-in shows a **profile page** with lifetime stats
+  (games played, win rate, average and best score) and a recent-games table.
+
+### Without OAuth configured
+
+If `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are not set, clicking **Sign in** will
+show the button but the OAuth redirect returns `503`. Everything else (rooms, gameplay,
+the admin API) works normally.
+
+---
+
 ## Admin API
 
 `/api/admin/*` gives you a look at what's running on the server - every current room, a
