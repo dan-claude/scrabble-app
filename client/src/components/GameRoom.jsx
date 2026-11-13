@@ -419,9 +419,14 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
             ))}
           </ul>
           {isHost && state.players.length < state.maxPlayers && (
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-              <button onClick={() => addBot('easy')} disabled={busy}>+ Add easy bot</button>
-              <button onClick={() => addBot('hard')} disabled={busy}>+ Add hard bot</button>
+            <div style={{ marginBottom: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => addBot('easy')} disabled={busy}>+ Add easy bot</button>
+                <button onClick={() => addBot('hard')} disabled={busy}>+ Add hard bot</button>
+              </div>
+              <p className="hint" style={{ marginTop: '4px' }}>
+                Easy plays common short words (up to 6 letters). Hard plays anything in the dictionary.
+              </p>
             </div>
           )}
           {message && <p className="error">{message}</p>}
