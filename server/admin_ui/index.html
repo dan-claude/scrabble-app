@@ -55,6 +55,16 @@
   .players-cell span { display: block; }
   label.auto { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666; font-weight: normal; }
   code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; }
+  button.secondary { background: #6c757d; }
+  button.secondary:hover { background: #545b62; }
+  .rejoin-panel { margin-top: 10px; padding: 10px 12px; background: #f8f9fa; border-radius: 6px; border: 1px solid #e0e0e0; }
+  .rejoin-panel p { margin: 0 0 8px; font-size: 12px; color: #555; }
+  .rejoin-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+  .rejoin-row:last-child { margin-bottom: 0; }
+  .rejoin-name { min-width: 100px; font-weight: 600; }
+  .rejoin-url { font-family: monospace; font-size: 11px; color: #555; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .copy-btn { flex-shrink: 0; padding: 3px 10px; font-size: 12px; background: #4f5df0; }
+  .copy-btn.copied { background: #2ecc71; }
 </style>
 </head>
 <body>
@@ -169,12 +179,18 @@ function renderRooms(rooms) {
       <td class="players-cell">${playersHtml}</td>
       <td>${fmtTime(room.createdAt)}</td>
       <td>${fmtTime(room.lastActivity)}</td>
-      <td><button type="button" class="danger" data-code="${escapeHtml(room.roomCode)}">Delete</button></td>
+      <td style="white-space:nowrap">
+        <button type="button" class="secondary" data-rejoin-code="${escapeHtml(room.roomCode)}" style="margin-right:6px">Rejoin links</button>
+        <button type="button" class="danger" data-code="${escapeHtml(room.roomCode)}">Delete</button>
+      </td>
     `;
     tbody.appendChild(tr);
   }
   tbody.querySelectorAll('button[data-code]').forEach((btn) => {
     btn.addEventListener('click', () => deleteRoom(btn.dataset.code));
+  });
+  tbody.querySelectorAll('button[data-rejoin-code]').forEach((btn) => {
+    btn.addEventListener('click', () => toggleRejoinPanel(btn, btn.dataset.rejoinCode));
   });
 }
 
@@ -268,6 +284,51 @@ async function loadAll() {
     } else {
       setStatus(err.message, true);
     }
+  }
+}
+
+async function toggleRejoinPanel(btn, code) {
+  const tr = btn.closest('tr');
+  // If already open, close it.
+  const existing = tr.nextElementSibling;
+  if (existing && existing.classList.contains('rejoin-panel-row')) {
+    existing.remove();
+    return;
+  }
+  try {
+    const data = await api(`/api/admin/rooms/${code}/rejoin-links`);
+    const panelTr = document.createElement('tr');
+    panelTr.className = 'rejoin-panel-row';
+    const td = document.createElement('td');
+    td.colSpan = 6;
+    const panel = document.createElement('div');
+    panel.className = 'rejoin-panel';
+    panel.innerHTML = '<p>Send each player their link to rejoin without a new cookie:</p>';
+    for (const p of data.players) {
+      const row = document.createElement('div');
+      row.className = 'rejoin-row';
+      row.innerHTML = `
+        <span class="rejoin-name">${escapeHtml(p.name)}</span>
+        <span class="rejoin-url">${escapeHtml(p.rejoinUrl)}</span>
+        <button class="copy-btn" type="button">Copy</button>
+      `;
+      row.querySelector('.copy-btn').addEventListener('click', (e) => {
+        navigator.clipboard.writeText(p.rejoinUrl).then(() => {
+          e.target.textContent = 'Copied!';
+          e.target.classList.add('copied');
+          setTimeout(() => { e.target.textContent = 'Copy'; e.target.classList.remove('copied'); }, 1500);
+        });
+      });
+      panel.appendChild(row);
+    }
+    if (data.players.length === 0) {
+      panel.innerHTML += '<p style="color:#999;font-style:italic;margin:0">No players in this room yet.</p>';
+    }
+    td.appendChild(panel);
+    panelTr.appendChild(td);
+    tr.after(panelTr);
+  } catch (err) {
+    alert('Could not load rejoin links: ' + err.message);
   }
 }
 

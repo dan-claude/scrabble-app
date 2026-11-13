@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { clearSession, fetchState, loadSession } from './api';
+import { clearSession, fetchState, loadSession, saveSession } from './api';
 import Lobby from './components/Lobby';
 import GameRoom from './components/GameRoom';
 import './App.css';
@@ -16,7 +16,28 @@ function App() {
   // On first load, try to resume a saved session. There's no separate
   // "rejoin" call under polling - a saved token just has to be accepted by
   // the state endpoint, same as any other poll.
+  //
+  // Also handles admin-generated rejoin links (?room=CODE&token=TOKEN): when
+  // both params are present we treat the token as an existing session rather
+  // than triggering a new join. This lets an admin recover a player whose
+  // localStorage was cleared without kicking them out of the game.
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const linkRoom = params.get('room');
+    const linkToken = params.get('token');
+    if (linkRoom && linkToken) {
+      window.history.replaceState({}, '', window.location.pathname);
+      const session = { roomCode: linkRoom.toUpperCase().slice(0, 5), token: linkToken };
+      fetchState(session.roomCode, session.token)
+        .then((payload) => {
+          saveSession(session);
+          setSession(session);
+          setState(payload);
+        })
+        .catch(() => setRejoinFailed(true));
+      return;
+    }
+
     const saved = loadSession();
     if (!saved) return;
     fetchState(saved.roomCode, saved.token)

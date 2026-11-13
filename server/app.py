@@ -405,6 +405,26 @@ def admin_room_detail(code):
     return game.to_dict()
 
 
+@app.get('/api/admin/rooms/<code>/rejoin-links')
+@api_route
+@require_admin
+def admin_rejoin_links(code):
+    """Return per-player rejoin URLs for a room. Each URL carries the player's
+    existing token so the client can restore their session without a new join.
+    Only meaningful for rooms whose players are still present (lobby or playing);
+    spectators are excluded since they have no persistent game seat to return to."""
+    game = _get_room(code)
+    base = request.host_url.rstrip('/')
+    players = [
+        {
+            'name': p.name,
+            'rejoinUrl': f'{base}/?room={game.room_code}&token={p.id}',
+        }
+        for p in game.players
+    ]
+    return {'roomCode': game.room_code, 'players': players}
+
+
 @app.delete('/api/admin/rooms/<code>')
 @api_route
 @require_admin
