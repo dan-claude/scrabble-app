@@ -140,6 +140,42 @@ page needs this before a player has any token at all.
 
 ---
 
+### `POST /api/rooms/<code>/add-bot`
+
+Add a bot player to a room that is still in the lobby. Host only.
+
+**Body**
+```ts
+{
+  token: string;
+  difficulty?: "easy" | "hard";   // default "hard"
+}
+```
+
+`"easy"` restricts the bot to words of 6 letters or fewer (common vocabulary).
+`"hard"` lets it use the full dictionary.
+
+**Response** `200 OK` — a `State` object.
+
+**Errors:** `404` `"Room not found."` · `401`/`403` token errors · `403` `"Only the host can add bots."` · `400` `"Game already in progress."` · `400` `"Room is full (4 players max)."`
+
+---
+
+### `POST /api/rooms/<code>/remove-bot`
+
+Remove a bot player from a room that is still in the lobby. Host only.
+
+**Body**
+```ts
+{ token: string; botId: string }
+```
+
+**Response** `200 OK` — a `State` object.
+
+**Errors:** `404` `"Room not found."` · `401`/`403` token errors · `403` `"Only the host can remove bots."` · `400` `"Cannot remove a player after the game has started."` · `400` `"Player not found."` · `400` `"Only bots can be removed this way."`
+
+---
+
 ### `POST /api/rooms/<code>/notification-setup`
 
 Update a player's notification setup after they've already joined — the only path
@@ -327,6 +363,8 @@ type PlayerView = {
   rackCount: number;
   connected: boolean;       // see Presence below
   rack: string[] | null;    // only populated for the recipient's own entry; null for others
+  isBot: boolean;
+  botDifficulty: "easy" | "hard" | null;  // non-null only when isBot is true
 };
 
 type SpectatorView = {
@@ -455,6 +493,25 @@ every player's actual rack (the same shape used internally for persistence; see
 Handy for chasing down a specific "why did my move get rejected" report.
 
 **Errors:** `404` if the room doesn't exist (or the token's wrong/missing - see above).
+
+### `GET /api/admin/rooms/<code>/rejoin-links`
+
+Return a per-player rejoin URL for every active player in the room. Each URL carries
+the player's existing token (`?room=CODE&rejoin_token=TOKEN`), so opening it in a browser
+restores their session directly — useful when a player has lost their `localStorage`
+cookie (closed browser, cleared storage, different device).
+
+**Response** `200 OK`
+```ts
+{
+  roomCode: string;
+  players: Array<{ name: string; rejoinUrl: string }>;
+}
+```
+
+Spectators are excluded — they have no persistent game seat to return to.
+
+**Errors:** `404` if the room doesn't exist or the admin token is wrong/missing.
 
 ### `DELETE /api/admin/rooms/<code>`
 
