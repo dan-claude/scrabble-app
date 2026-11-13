@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  addBot as apiAddBot,
   clearSession,
   exchangeTiles as apiExchangeTiles,
   passTurn as apiPassTurn,
   placeTiles as apiPlaceTiles,
+  removeBot as apiRemoveBot,
   startGame as apiStartGame,
   updateNotificationSetup as apiUpdateNotificationSetup,
 } from '../api';
@@ -286,6 +288,32 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
     }
   }
 
+  async function addBot() {
+    setBusy(true);
+    setMessage('');
+    try {
+      const updated = await apiAddBot(session.roomCode, session.token);
+      onStateUpdate(updated);
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeBot(botId) {
+    setBusy(true);
+    setMessage('');
+    try {
+      const updated = await apiRemoveBot(session.roomCode, session.token, botId);
+      onStateUpdate(updated);
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function leaveRoom() {
     clearSession();
     onLeave();
@@ -373,9 +401,29 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
           <p>Waiting for players... ({state.players.length}/{state.maxPlayers})</p>
           <ul>
             {state.players.map((p) => (
-              <li key={p.id}>{p.name}{p.id === state.hostId ? ' (host)' : ''}</li>
+              <li key={p.id}>
+                {p.name}
+                {p.isBot ? ' 🤖' : ''}
+                {p.id === state.hostId ? ' (host)' : ''}
+                {isHost && p.isBot && (
+                  <button
+                    className="link-btn"
+                    style={{ marginLeft: '8px', fontSize: '12px' }}
+                    onClick={() => removeBot(p.id)}
+                    disabled={busy}
+                  >
+                    Remove
+                  </button>
+                )}
+              </li>
             ))}
           </ul>
+          {isHost && state.players.length < state.maxPlayers && (
+            <button onClick={addBot} disabled={busy} style={{ marginBottom: '8px' }}>
+              + Add bot
+            </button>
+          )}
+          {message && <p className="error">{message}</p>}
           {isHost ? (
             <button onClick={startGame} disabled={busy || state.players.length < state.minPlayers}>
               Start game

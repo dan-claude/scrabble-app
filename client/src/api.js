@@ -47,6 +47,14 @@ export function startGame(roomCode, token) {
   return apiRequest('POST', `/api/rooms/${roomCode}/start`, { token });
 }
 
+export function addBot(roomCode, token) {
+  return apiRequest('POST', `/api/rooms/${roomCode}/add-bot`, { token });
+}
+
+export function removeBot(roomCode, token, botId) {
+  return apiRequest('POST', `/api/rooms/${roomCode}/remove-bot`, { token, body: { botId } });
+}
+
 export function placeTiles(roomCode, token, placements) {
   return apiRequest('POST', `/api/rooms/${roomCode}/place`, { token, body: { placements } });
 }

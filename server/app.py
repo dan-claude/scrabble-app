@@ -17,6 +17,7 @@ from game.game import (
     MAX_SPECTATORS,
     MIN_PLAYERS,
 )
+from game.bot import BOT_NAME, find_best_move, make_bot_token
 from notification_plugins import get_plugin, list_plugins, sanitize_setup, send_notification
 from rooms import ABANDONED_ROOM_SECONDS, IDLE_ROOM_SECONDS, MAX_ROOMS, ROOM_CODE_LENGTH, RoomManager
 from storage import build_store_from_env, describe_backend_from_env
@@ -192,6 +193,45 @@ def _current_turn_player_id(game):
     return game.current_player.id if game.status == 'playing' and game.current_player else None
 
 
+def _maybe_play_bot(game):
+    """If the current player is a bot, schedule its move in a background thread
+    after a short delay so it feels like a real opponent thinking."""
+    if game.status != 'playing':
+        return
+    player = game.current_player
+    if not player or not player.is_bot:
+        return
+
+    def _play():
+        # Re-fetch the game in case it was reaped or the turn changed while
+        # we were waiting (the timer fires 1s later on a background thread).
+        g = rooms.get_room(game.room_code)
+        if not g or g.status != 'playing':
+            return
+        if not g.current_player or not g.current_player.is_bot:
+            return
+        bot_id = g.current_player.id
+        prev = _current_turn_player_id(g)
+        try:
+            move = find_best_move(g)
+            if move['action'] == 'place':
+                g.place_tiles(bot_id, move['placements'])
+            elif move['action'] == 'exchange':
+                g.exchange_tiles(bot_id, move['letters'])
+            else:
+                g.pass_turn(bot_id)
+            g.touch()
+            rooms.persist(g)
+            if g.status == 'finished':
+                rooms.record_finished_game(g)
+            _maybe_notify_turn(g, prev)
+            _maybe_play_bot(g)  # chain: if next player is also a bot, schedule again
+        except Exception:
+            app.logger.exception('Bot move failed for room %s', game.room_code)
+
+    threading.Timer(1.0, _play).start()
+
+
 def _maybe_notify_turn(game, previous_turn_player_id):
     """Fire any server-triggered notification plugins for whoever's turn it
     now is - but only when the turn actually just changed to them, so this is
@@ -280,6 +320,7 @@ def start_game(code):
     if game.status == 'finished':
         rooms.record_finished_game(game)
     _maybe_notify_turn(game, previous_turn_player_id)
+    _maybe_play_bot(game)
     return _state_response(game, player)
 
 
@@ -296,6 +337,7 @@ def place_tiles(code):
     if game.status == 'finished':
         rooms.record_finished_game(game)
     _maybe_notify_turn(game, previous_turn_player_id)
+    _maybe_play_bot(game)
     return _state_response(game, player)
 
 
@@ -311,6 +353,7 @@ def pass_turn(code):
     if game.status == 'finished':
         rooms.record_finished_game(game)
     _maybe_notify_turn(game, previous_turn_player_id)
+    _maybe_play_bot(game)
     return _state_response(game, player)
 
 
@@ -327,6 +370,7 @@ def exchange_tiles(code):
     if game.status == 'finished':
         rooms.record_finished_game(game)
     _maybe_notify_turn(game, previous_turn_player_id)
+    _maybe_play_bot(game)
     return _state_response(game, player)
 
 
@@ -337,6 +381,33 @@ def notification_plugins():
     before a player has any token at all, and the admin page reads the same
     endpoint rather than duplicating it behind ADMIN_TOKEN."""
     return {'plugins': list_plugins()}
+
+
+@app.post('/api/rooms/<code>/add-bot')
+@api_route
+def add_bot(code):
+    game = _get_room(code)
+    player = _get_player(game, _body().get('token'))
+    if player.id != game.host_id:
+        raise ApiError('Only the host can add bots.', 403)
+    game.add_bot(make_bot_token(), BOT_NAME)
+    game.touch()
+    rooms.persist(game)
+    return _state_response(game, player)
+
+
+@app.post('/api/rooms/<code>/remove-bot')
+@api_route
+def remove_bot(code):
+    game = _get_room(code)
+    data = _body()
+    player = _get_player(game, data.get('token'))
+    if player.id != game.host_id:
+        raise ApiError('Only the host can remove bots.', 403)
+    game.remove_bot(data.get('botId'))
+    game.touch()
+    rooms.persist(game)
+    return _state_response(game, player)
 
 
 @app.post('/api/rooms/<code>/notification-setup')

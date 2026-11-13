@@ -22,10 +22,10 @@ class GameError(Exception):
 
 
 class Player:
-    __slots__ = ('id', 'name', 'rack', 'score', 'last_seen', 'notification_setup')
+    __slots__ = ('id', 'name', 'rack', 'score', 'last_seen', 'notification_setup', 'is_bot')
     is_spectator = False
 
-    def __init__(self, token, name):
+    def __init__(self, token, name, is_bot=False):
         self.id = token
         self.name = name
         self.rack = []
@@ -35,6 +35,7 @@ class Player:
         # Only ever written via sanitize_setup(), so every key/value here is
         # already known-safe by the time it lands on this object.
         self.notification_setup = {}
+        self.is_bot = is_bot
 
     def to_dict(self):
         return {
@@ -44,11 +45,12 @@ class Player:
             'score': self.score,
             'last_seen': self.last_seen,
             'notification_setup': dict(self.notification_setup),
+            'is_bot': self.is_bot,
         }
 
     @classmethod
     def from_dict(cls, data):
-        player = cls(data['id'], data['name'])
+        player = cls(data['id'], data['name'], is_bot=data.get('is_bot', False))
         player.rack = list(data.get('rack', []))
         player.score = data.get('score', 0)
         player.last_seen = data.get('last_seen', time.time())
@@ -113,6 +115,25 @@ class Game:
         if not self.host_id:
             self.host_id = token
         return player
+
+    def add_bot(self, token, name):
+        if self.status != 'lobby':
+            raise GameError('Game already in progress.')
+        if len(self.players) >= MAX_PLAYERS:
+            raise GameError(f'Room is full ({MAX_PLAYERS} players max).')
+        player = Player(token, name, is_bot=True)
+        self.players.append(player)
+        return player
+
+    def remove_bot(self, bot_id):
+        if self.status != 'lobby':
+            raise GameError('Cannot remove a player after the game has started.')
+        player = self.get_player(bot_id)
+        if not player:
+            raise GameError('Player not found.')
+        if not player.is_bot:
+            raise GameError('Only bots can be removed this way.')
+        self.players = [p for p in self.players if p.id != bot_id]
 
     def join(self, token, name):
         """Join a room: as an active player while it's still in the lobby, or as
@@ -497,6 +518,7 @@ class Game:
                     'rackCount': len(p.rack),
                     'connected': (now - p.last_seen) < CONNECTED_TIMEOUT_SECONDS,
                     'rack': p.rack if p.id == for_player_id else None,
+                    'isBot': p.is_bot,
                 }
                 for p in self.players
             ],
