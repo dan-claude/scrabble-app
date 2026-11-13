@@ -418,7 +418,7 @@ def admin_rejoin_links(code):
     players = [
         {
             'name': p.name,
-            'rejoinUrl': f'{base}/?room={game.room_code}&token={p.id}',
+            'rejoinUrl': f'{base}/?room={game.room_code}&rejoin_token={p.id}',
         }
         for p in game.players
     ]

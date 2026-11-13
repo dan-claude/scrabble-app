@@ -166,6 +166,10 @@ function escapeHtml(str) {
 
 function renderRooms(rooms) {
   const tbody = document.querySelector('#roomsTable tbody');
+  // Remember which panels were open so we can restore them after re-render.
+  const openCodes = new Set(
+    [...tbody.querySelectorAll('.rejoin-panel-row')].map((tr) => tr.dataset.forCode)
+  );
   tbody.innerHTML = '';
   el('roomsEmpty').hidden = rooms.length > 0;
   for (const room of rooms) {
@@ -191,6 +195,7 @@ function renderRooms(rooms) {
   });
   tbody.querySelectorAll('button[data-rejoin-code]').forEach((btn) => {
     btn.addEventListener('click', () => toggleRejoinPanel(btn, btn.dataset.rejoinCode));
+    if (openCodes.has(btn.dataset.rejoinCode)) toggleRejoinPanel(btn, btn.dataset.rejoinCode);
   });
 }
 
@@ -299,6 +304,7 @@ async function toggleRejoinPanel(btn, code) {
     const data = await api(`/api/admin/rooms/${code}/rejoin-links`);
     const panelTr = document.createElement('tr');
     panelTr.className = 'rejoin-panel-row';
+    panelTr.dataset.forCode = code;
     const td = document.createElement('td');
     td.colSpan = 6;
     const panel = document.createElement('div');

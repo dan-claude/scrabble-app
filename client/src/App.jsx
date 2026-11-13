@@ -24,7 +24,7 @@ function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const linkRoom = params.get('room');
-    const linkToken = params.get('token');
+    const linkToken = params.get('rejoin_token');
     if (linkRoom && linkToken) {
       window.history.replaceState({}, '', window.location.pathname);
       const session = { roomCode: linkRoom.toUpperCase().slice(0, 5), token: linkToken };

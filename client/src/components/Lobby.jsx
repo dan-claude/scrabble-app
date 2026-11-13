@@ -29,6 +29,9 @@ export default function Lobby({ onEntered }) {
     const params = new URLSearchParams(window.location.search);
     const invited = params.get('room');
     if (!invited) return;
+    // Admin rejoin links carry ?room=CODE&rejoin_token=TOKEN — App.jsx handles
+    // those directly using the existing token, so don't also trigger a new join here.
+    if (params.get('rejoin_token')) return;
     const code = invited.toUpperCase().slice(0, 5);
     setMode('join');
     setRoomCode(code);
