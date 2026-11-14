@@ -7,6 +7,7 @@ from functools import wraps
 from pathlib import Path
 
 from flask import Flask, redirect, request, send_from_directory, session as flask_session, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth
 from game.game import (
@@ -31,6 +32,9 @@ PORT = int(os.environ.get('PORT', 4000))
 FLASK_DEBUG = os.environ.get('FLASK_DEBUG', '0') == '1'
 
 app = Flask(__name__, static_folder=None)
+# Trust X-Forwarded-Proto/Host from a single reverse-proxy hop so that
+# url_for(..., _external=True) generates https:// in production.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 auth.init_app(app)
 
 # See storage.py: PERSISTENCE_BACKEND=none (default)/file/redis controls
