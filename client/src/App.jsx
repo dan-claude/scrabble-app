@@ -185,6 +185,7 @@ function App() {
         session={session}
         onLeave={handleLeave}
         onStateUpdate={handleStateUpdate}
+        userToken={userToken}
       />
     </div>
   );

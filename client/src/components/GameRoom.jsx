@@ -23,7 +23,7 @@ function nextUid() {
   return `t${uidCounter}`;
 }
 
-export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
+export default function GameRoom({ state, session, onLeave, onStateUpdate, userToken }) {
   const you = state.players.find((p) => p.id === state.youId);
   const isHost = state.hostId === state.youId;
   const isMyTurn = state.turnPlayerId === state.youId;
@@ -394,7 +394,12 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
             <p className="muted">👀 {state.spectators.length} watching</p>
           )}
         </div>
-        <button className="link-btn" onClick={leaveRoom}>Leave</button>
+        <div className="room-header-actions">
+          {userToken && (
+            <button className="link-btn" onClick={onLeave}>Back to lobby</button>
+          )}
+          <button className="link-btn leave-btn" onClick={leaveRoom}>Leave</button>
+        </div>
       </header>
 
       {state.status === 'lobby' && (

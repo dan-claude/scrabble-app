@@ -311,6 +311,16 @@
   font-style: italic;
 }
 
+.room-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.leave-btn {
+  color: #c0392b;
+}
+
 /* Remove-watcher button in ScoreBoard */
 .spectator-remove {
   background: none;
