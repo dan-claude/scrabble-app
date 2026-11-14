@@ -55,6 +55,10 @@ export function removeBot(roomCode, token, botId) {
   return apiRequest('POST', `/api/rooms/${roomCode}/remove-bot`, { token, body: { botId } });
 }
 
+export function removeSpectator(roomCode, token, spectatorId) {
+  return apiRequest('POST', `/api/rooms/${roomCode}/remove-spectator`, { token, body: { spectatorId } });
+}
+
 export function placeTiles(roomCode, token, placements) {
   return apiRequest('POST', `/api/rooms/${roomCode}/place`, { token, body: { placements } });
 }

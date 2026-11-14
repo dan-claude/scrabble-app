@@ -158,6 +158,12 @@ class Game:
         self.spectators.append(spectator)
         return spectator
 
+    def remove_spectator(self, spectator_id):
+        before = len(self.spectators)
+        self.spectators = [s for s in self.spectators if s.id != spectator_id]
+        if len(self.spectators) == before:
+            raise GameError('Spectator not found.')
+
     def get_player(self, token):
         return next((p for p in self.players if p.id == token), None)
 

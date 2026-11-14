@@ -178,6 +178,21 @@ Remove a bot player from a room that is still in the lobby. Host only.
 
 ---
 
+### `POST /api/rooms/<code>/remove-spectator`
+
+Remove a spectator from the room. Host only.
+
+**Body**
+```ts
+{ token: string; spectatorId: string }
+```
+
+**Response** `200 OK` — a `State` object.
+
+**Errors:** `404` `"Room not found."` · `401`/`403` token errors · `403` `"Only the host can remove spectators."` · `400` `"Spectator not found."`
+
+---
+
 ### `POST /api/rooms/<code>/notification-setup`
 
 Update a player's notification setup after they've already joined — the only path

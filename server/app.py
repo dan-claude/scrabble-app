@@ -423,6 +423,19 @@ def remove_bot(code):
     return _state_response(game, player)
 
 
+@app.post('/api/rooms/<code>/remove-spectator')
+@api_route
+def remove_spectator(code):
+    game = _get_room(code)
+    data = _body()
+    player = _get_player(game, data.get('token'))
+    if player.id != game.host_id:
+        raise ApiError('Only the host can remove spectators.', 403)
+    game.remove_spectator(data.get('spectatorId'))
+    rooms.persist(game)
+    return _state_response(game, player)
+
+
 @app.post('/api/rooms/<code>/notification-setup')
 @api_route
 def update_notification_setup(code):

@@ -311,6 +311,41 @@
   font-style: italic;
 }
 
+/* Spectator list in game room header */
+.spectator-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.spectator-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #f0f0f0;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #444;
+}
+
+.spectator-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #999;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 0 0 2px;
+}
+
+.spectator-remove:hover {
+  color: #c0392b;
+}
+
 /* Active games (resume a game) section in Lobby */
 .active-games {
   background: #f9f6f1;
