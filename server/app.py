@@ -7,6 +7,7 @@ from functools import wraps
 from pathlib import Path
 
 from flask import Flask, redirect, request, send_from_directory, session as flask_session, url_for
+from werkzeug.security import safe_join
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth
@@ -90,8 +91,12 @@ def serve_client(path):
     """Serve the built React client (production only; see README)."""
     if path.startswith('api/'):
         return {'error': 'not found'}, 404
-    target = CLIENT_DIST / path
-    if path and target.is_file():
+    # safe_join refuses any path that escapes CLIENT_DIST (.. segments, absolute
+    # paths, encoded slashes). Check it before testing existence so that an
+    # out-of-bounds path gets the same index.html response as a missing file,
+    # rather than a 404 that leaks whether the target exists on disk.
+    target = safe_join(str(CLIENT_DIST), path) if path else None
+    if target and os.path.isfile(target):
         return send_from_directory(CLIENT_DIST, path)
     return send_from_directory(CLIENT_DIST, 'index.html')
 
