@@ -391,25 +391,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
           <h2>Room {state.roomCode}</h2>
           <p className="muted">Bag: {state.bagCount} tiles left</p>
           {state.spectators.length > 0 && (
-            <div className="spectator-list">
-              <span className="muted">👀 Watching:</span>
-              {state.spectators.map((s) => (
-                <span key={s.id} className="spectator-chip">
-                  {s.name}
-                  {state.youId === state.hostId && (
-                    <button
-                      className="spectator-remove"
-                      title="Remove watcher"
-                      onClick={() =>
-                        apiRemoveSpectator(state.roomCode, session.token, s.id)
-                          .then(onStateUpdate)
-                          .catch(() => {})
-                      }
-                    >×</button>
-                  )}
-                </span>
-              ))}
-            </div>
+            <p className="muted">👀 {state.spectators.length} watching</p>
           )}
         </div>
         <button className="link-btn" onClick={leaveRoom}>Leave</button>
@@ -566,6 +548,9 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate }) {
               youId={state.youId}
               hostId={state.hostId}
               winnerId={state.winnerId}
+              onRemoveSpectator={state.youId === state.hostId
+                ? (spectatorId) => apiRemoveSpectator(state.roomCode, session.token, spectatorId).then(onStateUpdate).catch(() => {})
+                : undefined}
             />
             <GameLog log={state.log} />
             {!isSpectator && (

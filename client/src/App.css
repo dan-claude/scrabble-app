@@ -311,27 +311,7 @@
   font-style: italic;
 }
 
-/* Spectator list in game room header */
-.spectator-list {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 4px;
-  font-size: 13px;
-}
-
-.spectator-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  background: #f0f0f0;
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 12px;
-  color: #444;
-}
-
+/* Remove-watcher button in ScoreBoard */
 .spectator-remove {
   background: none;
   border: none;

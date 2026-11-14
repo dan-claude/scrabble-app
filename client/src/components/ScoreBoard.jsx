@@ -1,4 +1,4 @@
-export default function ScoreBoard({ players, spectators, turnPlayerId, youId, hostId, winnerId }) {
+export default function ScoreBoard({ players, spectators, turnPlayerId, youId, hostId, winnerId, onRemoveSpectator }) {
   return (
     <div className="scoreboard">
       <h3>Players</h3>
@@ -29,6 +29,13 @@ export default function ScoreBoard({ players, spectators, turnPlayerId, youId, h
                   {s.id === youId ? ' (you)' : ''}
                   {!s.connected ? ' — offline' : ''}
                 </span>
+                {onRemoveSpectator && (
+                  <button
+                    className="spectator-remove"
+                    title="Remove watcher"
+                    onClick={() => onRemoveSpectator(s.id)}
+                  >×</button>
+                )}
               </li>
             ))}
           </ul>
