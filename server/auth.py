@@ -30,7 +30,8 @@ SESSION_TTL = 30 * 24 * 60 * 60  # 30 days
 
 
 def init_app(app):
-    app.config.setdefault('SECRET_KEY', os.environ.get('SECRET_KEY') or secrets.token_hex(32))
+    if not app.config.get('SECRET_KEY'):
+        app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
     _oauth.init_app(app)
     _oauth.register(
         name='google',
