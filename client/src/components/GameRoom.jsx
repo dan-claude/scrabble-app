@@ -139,7 +139,8 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
   }
 
   function handleRackPointerDown(e, tile) {
-    beginDrag(e, { source: 'rack', uid: tile.uid, letter: tile.letter, isBlank: false });
+    const idx = Number(e.currentTarget.dataset.rackIndex ?? -1);
+    beginDrag(e, { source: 'rack', uid: tile.uid, letter: tile.letter, isBlank: false, rackIndex: idx });
   }
 
   function handlePendingPointerDown(e, row, col, pendingTile) {
@@ -197,6 +198,25 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
       }
     } else if (rackEl && d.source === 'board') {
       setPending((prev) => prev.filter((p) => p.uid !== d.uid));
+    } else if (rackEl && d.source === 'rack') {
+      // Reorder rack: insert dragged tile before/after the tile under the pointer.
+      const tileEl = target?.closest('[data-rack-uid]');
+      if (tileEl && tileEl.dataset.rackUid !== String(d.uid)) {
+        const dropUid = tileEl.dataset.rackUid;
+        const rect = tileEl.getBoundingClientRect();
+        const insertAfter = e.clientX > rect.left + rect.width / 2;
+        setRackTiles((prev) => {
+          const without = prev.filter((t) => t.uid !== d.uid);
+          const dragged = prev.find((t) => t.uid === d.uid);
+          if (!dragged) return prev;
+          const dropIdx = without.findIndex((t) => t.uid === dropUid);
+          if (dropIdx === -1) return prev;
+          const insertAt = insertAfter ? dropIdx + 1 : dropIdx;
+          const next = [...without];
+          next.splice(insertAt, 0, dragged);
+          return next;
+        });
+      }
     }
   }
 

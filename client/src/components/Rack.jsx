@@ -17,7 +17,7 @@ export default function Rack({
 }) {
   return (
     <div className="rack" data-rack-dropzone="true">
-      {tiles.map((t) => {
+      {tiles.map((t, idx) => {
         const isSelected = t.uid === selectedUid;
         const isExchangeSelected = exchangeSelected?.includes(t.uid);
         const classes = ['rack-tile'];
@@ -28,6 +28,8 @@ export default function Rack({
             type="button"
             key={t.uid}
             className={classes.join(' ')}
+            data-rack-index={idx}
+            data-rack-uid={t.uid}
             onClick={() => onSelect(t.uid)}
             onPointerDown={(e) => onTilePointerDown(e, t)}
             onPointerMove={onDragPointerMove}
