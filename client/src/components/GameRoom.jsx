@@ -389,7 +389,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
       <header className="room-header">
         <div>
           <h2>Room {state.roomCode}</h2>
-          <p className="muted">Bag: {state.bagCount} tiles left</p>
+          <p className="muted">Bag: {state.bagCount} tiles left · {state.dictionary}</p>
           {state.spectators.length > 0 && (
             <p className="muted">👀 {state.spectators.length} watching</p>
           )}

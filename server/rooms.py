@@ -33,13 +33,13 @@ class RoomManager:
                 continue  # skip a room that fails to reconstruct rather than crash startup
         return restored
 
-    def create_room(self):
+    def create_room(self, dictionary=None):
         if len(self.rooms) >= MAX_ROOMS:
             raise GameError('Server is at capacity right now — please try again in a bit.')
         code = _generate_room_code()
         while code in self.rooms:
             code = _generate_room_code()
-        game = Game(code)
+        game = Game(code, dictionary=dictionary)
         self.rooms[code] = game
         return game
 

@@ -67,6 +67,7 @@ Create a new room and join it as the host.
     [pluginId: string]: { [fieldKey: string]: string };
   };
   userToken?: string;               // optional - links this player to a signed-in account
+  dictionary?: string;              // optional - word list to use; defaults to "sowpods". See GET /api/dictionaries
 }
 ```
 
@@ -118,6 +119,20 @@ room member.
 **Errors:** `404` `"Room not found."` · `400` `"Enter a name."` · `400` `"Room is full (4
 players max)."` / `"That name is already taken in this room."` (lobby joins only) ·
 `400` `"Too many spectators already watching this game (20 max)."` (spectator joins only)
+
+---
+
+### `GET /api/dictionaries`
+
+List the word lists available on this server. Public and unauthenticated — needed before room creation. Any `.txt` file placed in `server/words/` is auto-discovered at startup.
+
+**Response** `200 OK`
+```ts
+{
+  dictionaries: string[];   // e.g. ["enable", "sowpods"]
+  default: string;          // the default when none is specified — currently "sowpods"
+}
+```
 
 ---
 
@@ -353,6 +368,7 @@ Every room/gameplay endpoint above returns this same shape (personalized per pla
 ```ts
 {
   roomCode: string;
+  dictionary: string;              // word list in use, e.g. "sowpods" or "enable"
   status: "lobby" | "playing" | "finished";
   minPlayers: number;                  // 2
   maxPlayers: number;                  // 4

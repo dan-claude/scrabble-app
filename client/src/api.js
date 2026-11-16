@@ -20,8 +20,12 @@ async function apiRequest(method, path, { token, body } = {}) {
   return data;
 }
 
-export function createRoom(playerName, notificationSetup, userToken) {
-  return apiRequest('POST', '/api/rooms', { body: { playerName, notificationSetup, userToken } });
+export function getDictionaries() {
+  return apiRequest('GET', '/api/dictionaries');
+}
+
+export function createRoom(playerName, notificationSetup, userToken, dictionary) {
+  return apiRequest('POST', '/api/rooms', { body: { playerName, notificationSetup, userToken, dictionary } });
 }
 
 export function joinRoom(roomCode, playerName, notificationSetup, userToken) {

@@ -11,6 +11,7 @@ from werkzeug.security import safe_join
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth
+from game.dictionary import available_dictionaries, default_dictionary
 from game.game import (
     BINGO_BONUS,
     CONNECTED_TIMEOUT_SECONDS,
@@ -278,7 +279,10 @@ def create_room():
     name = (data.get('playerName') or '').strip()[:20]
     if not name:
         raise GameError('Enter a name.')
-    game = rooms.create_room()
+    dictionary = data.get('dictionary') or default_dictionary()
+    if dictionary not in available_dictionaries():
+        raise GameError(f'Unknown dictionary: {dictionary!r}')
+    game = rooms.create_room(dictionary=dictionary)
     token = os.urandom(16).hex()
     player = game.add_player(token, name)
     player.notification_setup = sanitize_setup(data.get('notificationSetup'))
@@ -389,6 +393,16 @@ def exchange_tiles(code):
     _maybe_notify_turn(game, previous_turn_player_id)
     _maybe_play_bot(game)
     return _state_response(game, player)
+
+
+@app.get('/api/dictionaries')
+@api_route
+def dictionaries():
+    """List available word lists. Public and unauthenticated — needed before room creation."""
+    return {
+        'dictionaries': available_dictionaries(),
+        'default': default_dictionary(),
+    }
 
 
 @app.get('/api/notification-plugins')

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { createRoom, fetchState, getActiveGames, joinRoom, loadName, saveName, saveSession } from '../api';
+import { createRoom, fetchState, getActiveGames, getDictionaries, joinRoom, loadName, saveName, saveSession } from '../api';
 import useBrowserNotifications from '../hooks/useBrowserNotifications';
 import NotificationSettings from './NotificationSettings';
 
@@ -11,6 +11,8 @@ export default function Lobby({ onEntered, userToken }) {
   const [busy, setBusy] = useState(false);
   const [autoJoinName, setAutoJoinName] = useState(null); // non-null while silently rejoining via a remembered name
   const [activeGames, setActiveGames] = useState([]);
+  const [dictionaries, setDictionaries] = useState([]);
+  const [dictionary, setDictionary] = useState('');
 
   // One hook instance for the whole page (see the hook's own comment for
   // why), passed down into <NotificationSettings>. A returning player who
@@ -25,6 +27,15 @@ export default function Lobby({ onEntered, userToken }) {
       [pluginId]: { ...(prev[pluginId] || {}), [key]: value },
     }));
   }
+
+  useEffect(() => {
+    getDictionaries()
+      .then((data) => {
+        setDictionaries(data.dictionaries || []);
+        setDictionary(data.default || '');
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!userToken) return;
@@ -87,7 +98,7 @@ export default function Lobby({ onEntered, userToken }) {
     setBusy(true);
     try {
       const state = mode === 'create'
-        ? await createRoom(name, notifyValues, userToken)
+        ? await createRoom(name, notifyValues, userToken, dictionary)
         : await joinRoom(roomCode.trim().toUpperCase(), name, notifyValues, userToken);
       const session = { roomCode: state.roomCode, token: state.token };
       saveSession(session);
@@ -170,6 +181,16 @@ export default function Lobby({ onEntered, userToken }) {
               placeholder="ABCDE"
               required
             />
+          </label>
+        )}
+        {mode === 'create' && dictionaries.length > 1 && (
+          <label>
+            Dictionary
+            <select value={dictionary} onChange={(e) => setDictionary(e.target.value)}>
+              {dictionaries.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
           </label>
         )}
         {error && <p className="error">{error}</p>}

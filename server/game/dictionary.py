@@ -1,13 +1,32 @@
 from pathlib import Path
 
-_DICT_PATH = Path(__file__).resolve().parent.parent / 'words' / 'dictionary.txt'
+_WORDS_DIR = Path(__file__).resolve().parent.parent / 'words'
+_DEFAULT = 'sowpods'
 
-with _DICT_PATH.open('r', encoding='utf-8') as _f:
-    DICTIONARY = {line.strip() for line in _f if line.strip()}
-
-
-def is_valid_word(word):
-    return word.upper() in DICTIONARY
+# Lazily loaded: { name -> frozenset of words }
+_loaded = {}
 
 
-print(f'[dictionary] loaded {len(DICTIONARY)} words')
+def available_dictionaries():
+    """Return sorted list of dictionary names (stems of .txt files in words/)."""
+    return sorted(p.stem for p in _WORDS_DIR.glob('*.txt'))
+
+
+def _load(name):
+    if name not in _loaded:
+        path = _WORDS_DIR / f'{name}.txt'
+        if not path.exists():
+            raise ValueError(f'Unknown dictionary: {name!r}')
+        with path.open('r', encoding='utf-8') as f:
+            words = frozenset(line.strip().upper() for line in f if line.strip())
+        _loaded[name] = words
+        print(f'[dictionary] loaded {len(words)} words from {name}.txt')
+    return _loaded[name]
+
+
+def is_valid_word(word, dictionary=_DEFAULT):
+    return word.upper() in _load(dictionary)
+
+
+def default_dictionary():
+    return _DEFAULT

@@ -3,7 +3,7 @@ import re
 import time
 
 from .board import BOARD_SIZE, CENTER, create_bonus_grid, create_empty_board
-from .dictionary import is_valid_word
+from .dictionary import available_dictionaries, default_dictionary, is_valid_word
 from .tiles import create_tile_bag, letter_value
 
 MAX_RACK = 7
@@ -88,8 +88,9 @@ class Spectator:
 
 
 class Game:
-    def __init__(self, room_code):
+    def __init__(self, room_code, dictionary=None):
         self.room_code = room_code
+        self.dictionary = dictionary or default_dictionary()
         self.status = 'lobby'  # lobby | playing | finished
         self.board = create_empty_board()
         self.bonus_grid = create_bonus_grid()
@@ -399,7 +400,7 @@ class Game:
 
         # Validate every formed word against the dictionary.
         for w in words:
-            if not is_valid_word(w['text']):
+            if not is_valid_word(w['text'], self.dictionary):
                 raise GameError(f'"{w["text"]}" is not a valid word.')
 
         # Score the move.
@@ -512,6 +513,7 @@ class Game:
         now = time.time()
         return {
             'roomCode': self.room_code,
+            'dictionary': self.dictionary,
             'status': self.status,
             'minPlayers': MIN_PLAYERS,
             'maxPlayers': MAX_PLAYERS,
@@ -564,6 +566,7 @@ class Game:
     def to_dict(self):
         return {
             'room_code': self.room_code,
+            'dictionary': self.dictionary,
             'status': self.status,
             'board': self.board,
             'bag': list(self.bag),
@@ -583,7 +586,7 @@ class Game:
 
     @classmethod
     def from_dict(cls, data):
-        game = cls(data['room_code'])
+        game = cls(data['room_code'], dictionary=data.get('dictionary'))
         game.status = data.get('status', 'lobby')
         game.board = data.get('board', game.board)
         game.bag = list(data.get('bag', game.bag))
