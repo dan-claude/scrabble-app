@@ -107,6 +107,8 @@ def serve_client(path):
 # ---------------------------------------------------------------------------
 
 def _check_room_create_rate_limit():
+    if app.config.get('TESTING'):
+        return
     ip = request.remote_addr or 'unknown'
     now = time.time()
     with _room_create_lock:

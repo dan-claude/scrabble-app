@@ -14,7 +14,7 @@ import os
 from collections import Counter
 
 from .board import BOARD_SIZE, CENTER
-from .dictionary import DICTIONARY
+from .dictionary import _load as _load_dict
 from .tiles import letter_value
 
 BOT_NAME = 'Bot'
@@ -73,8 +73,9 @@ def _all_valid_placements(game, rack, is_first, difficulty='hard'):
     blank_count = rack_counter.get('#', 0)
     available = rack_counter + board_letters  # combined pool (over-approximation)
 
+    dictionary = _load_dict(game.dictionary)
     candidates = []
-    for word in DICTIONARY:
+    for word in dictionary:
         if len(word) < 2 or len(word) > max_len:
             continue
         wc = Counter(word)
@@ -243,10 +244,11 @@ def _score_placement(game, placements, is_first):
             return -1
 
     # Gather and validate all words formed.
+    word_set = _load_dict(game.dictionary)
     words = []
     if len(main_cells) > 1:
         w = _build_word(main_cells, overlay)
-        if not _is_valid_word(w['text']):
+        if w['text'] not in word_set:
             return -1
         words.append(w)
 
@@ -255,7 +257,7 @@ def _score_placement(game, placements, is_first):
         cross_cells = _extend_line(p['row'], p['col'], cross_orientation, overlay)
         if len(cross_cells) > 1:
             w = _build_word(cross_cells, overlay)
-            if not _is_valid_word(w['text']):
+            if w['text'] not in word_set:
                 return -1
             words.append(w)
 
@@ -312,5 +314,3 @@ def _score_word(bonus_grid, word):
     return total * word_multiplier
 
 
-def _is_valid_word(word):
-    return word in DICTIONARY
