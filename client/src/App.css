@@ -137,6 +137,22 @@
   background: #f5f5f5;
 }
 
+.modal-divider {
+  border: none;
+  border-top: 1px solid #eee;
+  margin: 12px 0;
+}
+
+.provider-btn--dev {
+  color: #888;
+  font-size: 13px;
+  border-style: dashed;
+}
+
+.provider-btn--dev:hover {
+  background: #fafafa;
+}
+
 .modal-note {
   margin: 1rem 0 0;
   font-size: 12px;

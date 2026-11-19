@@ -28,6 +28,11 @@ _oauth = OAuth()
 _sessions = {}
 SESSION_TTL = 30 * 24 * 60 * 60  # 30 days
 
+# Fallback in-memory user store used when the persistence backend is NullStore
+# (default local dev config). Dev-login users always land here; production
+# users go through the real store but fall back here on a cache miss.
+_mem_users = {}
+
 
 def init_app(app):
     if not app.config.get('SECRET_KEY'):
@@ -72,7 +77,7 @@ def get_user_by_session(token, store):
     if time.time() > entry['expires_at']:
         del _sessions[token]
         return None
-    return store.get_user(entry['user_id'])
+    return store.get_user(entry['user_id']) or _mem_users.get(entry['user_id'])
 
 
 def delete_session(token):
@@ -83,11 +88,32 @@ def delete_session(token):
 # User management
 # ---------------------------------------------------------------------------
 
+def create_dev_user(store):
+    """Create a throwaway user for local development. Never call in production."""
+    user_id = str(uuid.uuid4())
+    suffix = user_id[:6]
+    user = {
+        'id': user_id,
+        'googleId': f'dev_{suffix}',
+        'email': f'dev_{suffix}@localhost',
+        'name': f'Dev-{suffix}',
+        'picture': None,
+        'createdAt': time.time(),
+    }
+    _mem_users[user_id] = user
+    store.save_user(user_id, user)
+    return user
+
+
 def find_or_create_user(store, google_id, email, name, picture):
     user = store.find_user_by_google_id(google_id)
+    if not user:
+        # check in-memory cache (covers no-persistence local dev)
+        user = next((u for u in _mem_users.values() if u.get('googleId') == google_id), None)
     if user:
         user['name'] = name
         user['picture'] = picture
+        _mem_users[user['id']] = user
         store.save_user(user['id'], user)
         return user
     user_id = str(uuid.uuid4())
@@ -99,6 +125,7 @@ def find_or_create_user(store, google_id, email, name, picture):
         'picture': picture,
         'createdAt': time.time(),
     }
+    _mem_users[user_id] = user
     store.save_user(user_id, user)
     return user
 

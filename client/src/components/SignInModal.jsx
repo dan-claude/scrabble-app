@@ -1,4 +1,17 @@
+import { devLogin } from '../api';
+
+const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
 export default function SignInModal({ onClose, onSuccess }) {
+  async function handleDevLogin() {
+    try {
+      const data = await devLogin();
+      onSuccess(data.userToken);
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
   function handleGoogle() {
     const popup = window.open(
       '/api/auth/google?popup=1',
@@ -48,6 +61,14 @@ export default function SignInModal({ onClose, onSuccess }) {
           </svg>
           Continue with Google
         </button>
+        {isLocalhost && (
+          <>
+            <hr className="modal-divider" />
+            <button className="provider-btn provider-btn--dev" onClick={handleDevLogin}>
+              Quick dev login (localhost only)
+            </button>
+          </>
+        )}
         <p className="modal-note">You can still play without signing in</p>
       </div>
     </div>

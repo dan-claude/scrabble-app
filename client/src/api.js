@@ -97,6 +97,10 @@ export function getMe(userToken) {
   return authRequest('GET', '/api/auth/me', userToken);
 }
 
+export function devLogin() {
+  return apiRequest('POST', '/api/auth/dev-login');
+}
+
 export function logout(userToken) {
   return authRequest('POST', '/api/auth/logout', userToken);
 }

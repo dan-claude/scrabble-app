@@ -593,6 +593,16 @@ def auth_me():
     return {'user': {k: user[k] for k in ('id', 'name', 'email', 'picture')}}
 
 
+@app.post('/api/auth/dev-login')
+@api_route
+def auth_dev_login():
+    if request.remote_addr not in ('127.0.0.1', '::1'):
+        raise ApiError('Dev login is only available on localhost.', 403)
+    user = auth.create_dev_user(rooms.store)
+    token = auth.create_session(user['id'])
+    return {'userToken': token, 'name': user['name']}
+
+
 @app.post('/api/auth/logout')
 @api_route
 def auth_logout():
