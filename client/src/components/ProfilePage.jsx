@@ -1,20 +1,51 @@
 import { useEffect, useState } from 'react';
-import { getProfile, logout as apiLogout } from '../api';
+import { getProfile, logout as apiLogout, updateProfile } from '../api';
 
 function formatDate(ts) {
   if (!ts) return '—';
   return new Date(ts * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export default function ProfilePage({ userToken, onBack, onLogout }) {
+export default function ProfilePage({ userToken, smsEnabled, onBack, onLogout }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [phoneInput, setPhoneInput] = useState('');
+  const [phoneSaving, setPhoneSaving] = useState(false);
+  const [phoneMsg, setPhoneMsg] = useState(null);
 
   useEffect(() => {
     getProfile(userToken)
-      .then(setData)
+      .then((d) => { setData(d); setPhoneInput(d.user.phone || ''); })
       .catch(() => setError('Failed to load profile.'));
   }, [userToken]);
+
+  async function handleSavePhone(e) {
+    e.preventDefault();
+    setPhoneSaving(true);
+    setPhoneMsg(null);
+    try {
+      await updateProfile(userToken, { phone: phoneInput.trim() || null });
+      setPhoneMsg('Saved.');
+    } catch {
+      setPhoneMsg('Could not save. Please try again.');
+    } finally {
+      setPhoneSaving(false);
+    }
+  }
+
+  async function handleRemovePhone() {
+    setPhoneSaving(true);
+    setPhoneMsg(null);
+    try {
+      await updateProfile(userToken, { phone: null });
+      setPhoneInput('');
+      setPhoneMsg('Phone number removed.');
+    } catch {
+      setPhoneMsg('Could not remove. Please try again.');
+    } finally {
+      setPhoneSaving(false);
+    }
+  }
 
   async function handleLogout() {
     await apiLogout(userToken).catch(() => {});
@@ -110,6 +141,40 @@ export default function ProfilePage({ userToken, onBack, onLogout }) {
             </tbody>
           </table>
         </>
+      )}
+
+      {smsEnabled && (
+        <div className="profile-sms-section">
+          <h3 className="profile-section-title">SMS notifications</h3>
+          <p className="profile-sms-desc">Get a text message when it's your turn.</p>
+          <form className="profile-sms-form" onSubmit={handleSavePhone}>
+            <label className="profile-sms-label" htmlFor="sms-phone">Phone number</label>
+            <div className="profile-sms-row">
+              <input
+                id="sms-phone"
+                type="tel"
+                className="profile-sms-input"
+                placeholder="+1 555 000 0000"
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(e.target.value)}
+                disabled={phoneSaving}
+              />
+              <button type="submit" className="profile-sms-save" disabled={phoneSaving}>
+                Save
+              </button>
+              {phoneInput && (
+                <button type="button" className="profile-sms-remove" onClick={handleRemovePhone} disabled={phoneSaving}>
+                  Remove
+                </button>
+              )}
+            </div>
+            {phoneMsg && <p className="profile-sms-msg">{phoneMsg}</p>}
+          </form>
+          <p className="profile-sms-consent">
+            By saving a phone number you agree to receive SMS messages from this app when it's your turn.
+            To opt out at any time, reply <strong>STOP</strong> to any message.
+          </p>
+        </div>
       )}
     </div>
   );

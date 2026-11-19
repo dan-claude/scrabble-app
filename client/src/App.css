@@ -311,6 +311,80 @@
   font-style: italic;
 }
 
+.profile-sms-section {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid #e0d9cc;
+}
+
+.profile-sms-desc {
+  font-size: 14px;
+  color: #555;
+  margin: 0 0 12px;
+}
+
+.profile-sms-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #444;
+  margin-bottom: 6px;
+}
+
+.profile-sms-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.profile-sms-input {
+  flex: 1;
+  min-width: 180px;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 15px;
+}
+
+.profile-sms-save {
+  padding: 8px 16px;
+  background: #5a7a4a;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.profile-sms-save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.profile-sms-remove {
+  padding: 8px 12px;
+  background: none;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #666;
+  cursor: pointer;
+}
+
+.profile-sms-msg {
+  font-size: 13px;
+  color: #5a7a4a;
+  margin: 8px 0 0;
+}
+
+.profile-sms-consent {
+  margin-top: 14px;
+  font-size: 12px;
+  color: #888;
+  line-height: 1.5;
+}
+
 .room-header-actions {
   display: flex;
   align-items: center;

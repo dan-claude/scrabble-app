@@ -611,10 +611,29 @@ def profile():
         raise ApiError('Not authenticated.', 401)
     all_games = rooms.list_finished_games(limit=10000)
     stats = auth.compute_stats(user['id'], all_games)
-    return {
-        'user': {k: user[k] for k in ('id', 'name', 'email', 'picture', 'createdAt')},
-        'stats': stats,
-    }
+    user_fields = {k: user[k] for k in ('id', 'name', 'email', 'picture', 'createdAt')}
+    user_fields['phone'] = user.get('phone')
+    return {'user': user_fields, 'stats': stats}
+
+
+@app.patch('/api/profile')
+@api_route
+def update_profile():
+    token = request.headers.get('Authorization', '')[7:]
+    user = auth.get_user_by_session(token, rooms.store)
+    if not user:
+        raise ApiError('Not authenticated.', 401)
+    body = _body()
+    if 'phone' in body:
+        phone = body['phone']
+        if phone is None or phone == '':
+            user.pop('phone', None)
+        else:
+            if not isinstance(phone, str) or len(phone) > 20:
+                raise GameError('Invalid phone number.')
+            user['phone'] = phone.strip()
+        rooms.store.save_user(user['id'], user)
+    return {'phone': user.get('phone')}
 
 
 # ---------------------------------------------------------------------------

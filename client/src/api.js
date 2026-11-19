@@ -105,6 +105,10 @@ export function getProfile(userToken) {
   return authRequest('GET', '/api/profile', userToken);
 }
 
+export function updateProfile(userToken, fields) {
+  return authRequest('PATCH', '/api/profile', userToken, fields);
+}
+
 export function getActiveGames(userToken) {
   return authRequest('GET', '/api/auth/active-games', userToken);
 }

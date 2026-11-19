@@ -9,6 +9,8 @@ import './App.css';
 
 const POLL_INTERVAL_MS = 1000;
 
+const smsEnabled = new URLSearchParams(window.location.search).has('sms');
+
 function App() {
   const [session, setSession] = useState(null);
   const [state, setState] = useState(null);
@@ -157,6 +159,7 @@ function App() {
         {header}
         <ProfilePage
           userToken={userToken}
+          smsEnabled={smsEnabled}
           onBack={() => setShowProfile(false)}
           onLogout={handleLogout}
         />
