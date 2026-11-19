@@ -660,6 +660,139 @@ def admin_ui():
     return send_from_directory(ADMIN_UI_DIR, 'index.html')
 
 
+@app.get('/sms-preview')
+def sms_preview():
+    return '''<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMS notifications – preview</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f5f0e8;
+    display: flex;
+    justify-content: center;
+    padding: 40px 16px;
+  }
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 32px;
+    max-width: 480px;
+    width: 100%;
+    box-shadow: 0 2px 12px rgba(0,0,0,.08);
+  }
+  .profile-identity {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .profile-avatar {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: #5a7a4a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 24px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .profile-name { font-size: 18px; font-weight: 700; margin: 0 0 2px; }
+  .profile-email { font-size: 13px; color: #888; margin: 0; }
+  .section-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #222;
+    margin: 0 0 4px;
+    padding-top: 24px;
+    border-top: 1px solid #e0d9cc;
+  }
+  .desc { font-size: 14px; color: #555; margin: 0 0 12px; }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #444;
+    margin-bottom: 6px;
+  }
+  .row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  input[type=tel] {
+    flex: 1;
+    min-width: 180px;
+    padding: 8px 10px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 15px;
+  }
+  .btn-save {
+    padding: 8px 16px;
+    background: #5a7a4a;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .btn-remove {
+    padding: 8px 12px;
+    background: none;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+    color: #666;
+    cursor: pointer;
+  }
+  .msg { font-size: 13px; color: #5a7a4a; margin: 8px 0 0; }
+  .consent {
+    margin-top: 14px;
+    font-size: 12px;
+    color: #888;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="profile-identity">
+    <div class="profile-avatar">J</div>
+    <div>
+      <p class="profile-name">Jane Smith</p>
+      <p class="profile-email">jane@example.com</p>
+    </div>
+  </div>
+
+  <p class="section-title">SMS notifications</p>
+  <p class="desc">Get a text when it&rsquo;s your turn.</p>
+  <form onsubmit="return false">
+    <label for="phone">Phone number</label>
+    <div class="row">
+      <input type="tel" id="phone" placeholder="+1 555 000 0000" value="">
+      <button class="btn-save" type="submit">Save</button>
+    </div>
+    <p class="msg" style="display:none">Phone number saved.</p>
+  </form>
+  <p class="consent">
+    By saving a phone number you agree to receive SMS messages from this app when it&rsquo;s your turn.
+    To opt out at any time, reply <strong>STOP</strong> to any message.
+  </p>
+</div>
+</body>
+</html>'''
+
+
 def _admin_room_summary(game):
     state = game.state_for(None)  # for_player_id=None -> nobody's rack is revealed
     return {
