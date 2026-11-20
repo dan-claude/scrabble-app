@@ -16,7 +16,13 @@ export default function Rack({
   onDragPointerCancel,
 }) {
   return (
-    <div className="rack" data-rack-dropzone="true">
+    <div
+      className="rack"
+      data-rack-dropzone="true"
+      onPointerMove={onDragPointerMove}
+      onPointerUp={onDragPointerUp}
+      onPointerCancel={onDragPointerCancel}
+    >
       {tiles.map((t, idx) => {
         const isSelected = t.uid === selectedUid;
         const isExchangeSelected = exchangeSelected?.includes(t.uid);

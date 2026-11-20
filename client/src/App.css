@@ -935,6 +935,7 @@
   min-height: 3.5rem;
   width: 100%;
   max-width: 600px;
+  touch-action: none;
 }
 
 .rack-tile {
