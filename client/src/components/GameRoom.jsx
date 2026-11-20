@@ -140,7 +140,15 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
 
   function handleRackPointerDown(e, tile) {
     const idx = Number(e.currentTarget.dataset.rackIndex ?? -1);
-    beginDrag(e, { source: 'rack', uid: tile.uid, letter: tile.letter, isBlank: false, rackIndex: idx });
+    const info = { source: 'rack', uid: tile.uid, letter: tile.letter, isBlank: false, rackIndex: idx };
+    if (!isMyTurn || state.status !== 'playing') {
+      // Allow reordering even when it's not your turn.
+      if (exchangeMode) return;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      dragInfoRef.current = { ...info, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, moved: false };
+      return;
+    }
+    beginDrag(e, info);
   }
 
   function handlePendingPointerDown(e, row, col, pendingTile) {
