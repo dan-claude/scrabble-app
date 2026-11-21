@@ -125,6 +125,18 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
 
   const DRAG_THRESHOLD = 6; // px of movement before a tap becomes a drag
 
+  // On pinch-zoomed mobile, pointer-event clientX/Y are in visual-viewport
+  // coordinates, but document.elementFromPoint() takes layout-viewport
+  // coordinates. Convert so drops land on the right cell when zoomed in.
+  function layoutCoords(clientX, clientY) {
+    const vv = window.visualViewport;
+    if (!vv || vv.scale === 1) return [clientX, clientY];
+    return [
+      clientX / vv.scale + vv.offsetLeft,
+      clientY / vv.scale + vv.offsetTop,
+    ];
+  }
+
   function beginDrag(e, info) {
     if (!isMyTurn || state.status !== 'playing') return;
     if (info.source === 'rack' && exchangeMode) return; // let exchange taps work normally
@@ -186,7 +198,8 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
     justDraggedRef.current = true;
     requestAnimationFrame(() => { justDraggedRef.current = false; });
 
-    const target = document.elementFromPoint(e.clientX, e.clientY);
+    const [dropX, dropY] = layoutCoords(e.clientX, e.clientY);
+    const target = document.elementFromPoint(dropX, dropY);
     const cellEl = target?.closest('[data-cell-row]');
     const rackEl = target?.closest('[data-rack-dropzone]');
 
