@@ -10,6 +10,16 @@ import './App.css';
 const POLL_INTERVAL_MS = 1000;
 
 
+const SMS_NUDGE_KEY = 'sms_nudge_dismissed';
+
+function shouldShowSmsNudge(user) {
+  if (!user) return false;
+  if (!user.phone || user.phoneOptedOut) {
+    try { return !localStorage.getItem(SMS_NUDGE_KEY); } catch { return false; }
+  }
+  return false;
+}
+
 function App() {
   const [session, setSession] = useState(null);
   const [state, setState] = useState(null);
@@ -19,6 +29,7 @@ function App() {
   const [userToken, setUserToken] = useState(null);
   const [showSignIn, setShowSignIn] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showSmsNudge, setShowSmsNudge] = useState(false);
   const pollTimerRef = useRef(null);
 
   // Load auth session and handle OAuth callback (?user_token=TOKEN).
@@ -29,12 +40,18 @@ function App() {
       window.history.replaceState({}, '', window.location.pathname);
       saveUserToken(oauthToken);
       setUserToken(oauthToken);
-      getMe(oauthToken).then((data) => setUser(data.user)).catch(() => {});
+      getMe(oauthToken).then((data) => {
+        setUser(data.user);
+        setShowSmsNudge(shouldShowSmsNudge(data.user));
+      }).catch(() => {});
     } else {
       const saved = loadUserToken();
       if (saved) {
         setUserToken(saved);
-        getMe(saved).then((data) => setUser(data.user)).catch(() => {});
+        getMe(saved).then((data) => {
+          setUser(data.user);
+          setShowSmsNudge(shouldShowSmsNudge(data.user));
+        }).catch(() => {});
       }
     }
   }, []);
@@ -126,6 +143,7 @@ function App() {
     try {
       const data = await getMe(newUserToken);
       setUser(data.user);
+      setShowSmsNudge(shouldShowSmsNudge(data.user));
       // If we're currently in a room, stamp user_id on the existing player slot
       // so this game counts in their history even though they signed in mid-game.
       if (session) {
@@ -139,6 +157,17 @@ function App() {
     setUserToken(null);
     saveUserToken(null);
     setShowProfile(false);
+    setShowSmsNudge(false);
+  }
+
+  function dismissSmsNudge() {
+    try { localStorage.setItem(SMS_NUDGE_KEY, '1'); } catch {}
+    setShowSmsNudge(false);
+  }
+
+  function openProfileForSms() {
+    dismissSmsNudge();
+    setShowProfile(true);
   }
 
   const header = (
@@ -149,6 +178,16 @@ function App() {
         onSignIn={() => setShowSignIn(true)}
         onProfile={() => setShowProfile(true)}
       />
+    </div>
+  );
+
+  const smsNudge = showSmsNudge && (
+    <div className="sms-nudge">
+      <span className="sms-nudge-text">Get a text when it&rsquo;s your turn — set up SMS notifications in your profile.</span>
+      <div className="sms-nudge-actions">
+        <button className="sms-nudge-btn sms-nudge-btn--primary" onClick={openProfileForSms}>Set up</button>
+        <button className="sms-nudge-btn sms-nudge-btn--ghost" onClick={dismissSmsNudge}>Not now</button>
+      </div>
     </div>
   );
 
@@ -169,6 +208,7 @@ function App() {
     return (
       <div className="app-shell">
         {header}
+        {smsNudge}
         {showSignIn && <SignInModal onClose={() => setShowSignIn(false)} onSuccess={handleAuthSuccess} />}
         {rejoinFailed && <p className="error center-text">Previous session expired.</p>}
         <Lobby onEntered={handleEntered} userToken={userToken} />
@@ -179,6 +219,7 @@ function App() {
   return (
     <div className="app-shell">
       {header}
+      {smsNudge}
       {showSignIn && <SignInModal onClose={() => setShowSignIn(false)} onSuccess={handleAuthSuccess} />}
       {!connected && <p className="error center-text">Reconnecting...</p>}
       <GameRoom

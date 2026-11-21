@@ -133,3 +133,8 @@ def set_opted_out(phone: str, opted_out: bool):
         _optouts.pop(key, None)
     _save()
     logger.info('SMS opt-out: %s → opted_out=%s', key, opted_out)
+
+
+def get_all() -> list[dict]:
+    """Return all tracked numbers with their opt-out status."""
+    return [{'phone': phone, 'optedOut': opted_out} for phone, opted_out in sorted(_optouts.items())]

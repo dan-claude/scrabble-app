@@ -510,7 +510,14 @@ Return the signed-in user's basic profile.
 **Response** `200 OK`
 ```ts
 {
-  user: { id: string; name: string; email: string; picture: string };
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    picture: string;
+    phone: string | null;        // registered SMS phone number
+    phoneOptedOut: boolean;      // true if the number has opted out via STOP
+  };
 }
 ```
 
@@ -792,6 +799,22 @@ credentials are redacted to `***:***` - only the host/port/db portion is real.
   }>;
 }
 ```
+
+### `GET /api/admin/sms-optouts`
+
+The full SMS opt-out table — every phone number that has ever sent a STOP or START reply, with its current status. Only numbers that have interacted with the webhook appear here; numbers that received messages but never replied are absent.
+
+**Response** `200 OK`
+```ts
+{
+  numbers: Array<{
+    phone: string;      // E.164-normalised phone number
+    optedOut: boolean;  // true = STOP'd, false = active (START'd after a prior STOP)
+  }>;
+}
+```
+
+---
 
 ## Notification plugins
 

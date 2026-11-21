@@ -118,6 +118,15 @@
     </table>
     <div class="empty" id="pluginsEmpty" hidden>No notification plugins loaded.</div>
   </section>
+
+  <section id="smsSection" hidden>
+    <h2><span>SMS opt-out table <span id="smsCount" style="font-weight:normal;color:#999;font-size:12px"></span></span></h2>
+    <table id="smsTable">
+      <thead><tr><th>Phone number</th><th>Status</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="empty" id="smsEmpty" hidden>No SMS numbers tracked yet.</div>
+  </section>
 </main>
 
 <script>
@@ -258,22 +267,42 @@ function renderPlugins(plugins) {
   }
 }
 
+function renderSmsOptouts(numbers) {
+  const tbody = document.querySelector('#smsTable tbody');
+  tbody.innerHTML = '';
+  el('smsEmpty').hidden = numbers.length > 0;
+  el('smsCount').textContent = numbers.length ? `(${numbers.length})` : '';
+  for (const entry of numbers) {
+    const tr = document.createElement('tr');
+    const badgeClass = entry.optedOut ? 'finished' : 'playing';
+    const badgeText = entry.optedOut ? 'opted out' : 'opted in';
+    tr.innerHTML = `
+      <td><code>${escapeHtml(entry.phone)}</code></td>
+      <td><span class="badge ${badgeClass}">${badgeText}</span></td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
 async function loadAll() {
   try {
-    const [roomsBody, gamesBody, paramsBody, pluginsBody] = await Promise.all([
+    const [roomsBody, gamesBody, paramsBody, pluginsBody, smsBody] = await Promise.all([
       api('/api/admin/rooms'),
       api('/api/admin/games?limit=200'),
       api('/api/admin/params'),
       api('/api/notification-plugins'),
+      api('/api/admin/sms-optouts'),
     ]);
     el('roomsSection').hidden = false;
     el('gamesSection').hidden = false;
     el('paramsSection').hidden = false;
     el('pluginsSection').hidden = false;
+    el('smsSection').hidden = false;
     renderRooms(roomsBody.rooms);
     renderGames(gamesBody.games);
     renderParams(paramsBody.params);
     renderPlugins(pluginsBody.plugins);
+    renderSmsOptouts(smsBody.numbers);
     setStatus(`Connected. Last updated ${new Date().toLocaleTimeString()}.`);
     el('disconnectBtn').hidden = false;
     sessionStorage.setItem('scrabble_admin_token', token);
@@ -283,6 +312,7 @@ async function loadAll() {
     el('gamesSection').hidden = true;
     el('paramsSection').hidden = true;
     el('pluginsSection').hidden = true;
+    el('smsSection').hidden = true;
     el('disconnectBtn').hidden = true;
     if (err.status === 404) {
       setStatus('Invalid token, or the admin API is not enabled on this server (ADMIN_TOKEN not set).', true);
@@ -373,6 +403,7 @@ el('disconnectBtn').addEventListener('click', () => {
   el('gamesSection').hidden = true;
   el('paramsSection').hidden = true;
   el('pluginsSection').hidden = true;
+  el('smsSection').hidden = true;
   el('disconnectBtn').hidden = true;
   el('tokenInput').value = '';
   setStatus('Disconnected.');

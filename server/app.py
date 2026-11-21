@@ -628,7 +628,12 @@ def auth_me():
     user = auth.get_user_by_session(token, rooms.store)
     if not user:
         raise ApiError('Not authenticated.', 401)
-    return {'user': {k: user[k] for k in ('id', 'name', 'email', 'picture')}}
+    phone = user.get('phone')
+    return {'user': {
+        **{k: user[k] for k in ('id', 'name', 'email', 'picture')},
+        'phone': phone,
+        'phoneOptedOut': sms_optout.is_opted_out(phone) if phone else False,
+    }}
 
 
 @app.post('/api/auth/dev-login')
@@ -1026,6 +1031,13 @@ def _admin_params():
 @require_admin
 def admin_params():
     return _admin_params()
+
+
+@app.get('/api/admin/sms-optouts')
+@api_route
+@require_admin
+def admin_sms_optouts():
+    return {'numbers': sms_optout.get_all()}
 
 
 threading.Timer(SWEEP_INTERVAL_SECONDS, _sweep_rooms).start()
