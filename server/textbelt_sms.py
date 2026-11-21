@@ -49,7 +49,7 @@ def msg_turn_notification(room_url: str) -> str:
     b = _brand()
     return (
         f'[{b}] It\'s your turn! '
-        f'Join here: {room_url} — Reply STOP to opt out.'
+        f'Play here: {room_url} — Reply STOP to opt out.'
     )
 
 
