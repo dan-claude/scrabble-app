@@ -97,7 +97,7 @@ def send(phone: str, message: str, webhook_url: str | None = None) -> bool:
         payload['replyWebhookUrl'] = webhook_url
 
     try:
-        resp = _requests.post(TEXTBELT_URL, data=payload, timeout=_TIMEOUT)
+        resp = _requests.post(TEXTBELT_URL, json=payload, timeout=_TIMEOUT)
         result = resp.json()
     except Exception:
         logger.exception('TextBelt HTTP request failed for %s', _redact(phone))
