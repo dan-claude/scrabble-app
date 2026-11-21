@@ -1,3 +1,4 @@
+import os
 import secrets
 import time
 
@@ -7,8 +8,8 @@ from storage import NullStore
 ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 ROOM_CODE_LENGTH = 5
 MAX_ROOMS = 1000  # hard cap on concurrent rooms, so a creation flood can't exhaust memory
-IDLE_ROOM_SECONDS = 3 * 24 * 60 * 60  # reap rooms with no game activity for this long
-ABANDONED_ROOM_SECONDS = 3 * 24 * 60 * 60  # reap rooms nobody has polled in this long (everyone left)
+IDLE_ROOM_SECONDS = int(os.environ.get('IDLE_ROOM_DAYS', 10)) * 24 * 60 * 60
+ABANDONED_ROOM_SECONDS = int(os.environ.get('IDLE_ROOM_DAYS', 10)) * 24 * 60 * 60
 
 
 def _generate_room_code():
