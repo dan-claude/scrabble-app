@@ -125,16 +125,22 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
 
   const DRAG_THRESHOLD = 6; // px of movement before a tap becomes a drag
 
-  // On pinch-zoomed mobile, pointer-event clientX/Y are in visual-viewport
-  // coordinates, but document.elementFromPoint() takes layout-viewport
-  // coordinates. Convert so drops land on the right cell when zoomed in.
-  function layoutCoords(clientX, clientY) {
-    const vv = window.visualViewport;
-    if (!vv || vv.scale === 1) return [clientX, clientY];
-    return [
-      clientX / vv.scale + vv.offsetLeft,
-      clientY / vv.scale + vv.offsetTop,
-    ];
+  // Returns the board cell [row, col] under (cx, cy), or null.
+  // Uses getBoundingClientRect which is in the same coordinate space as
+  // pointer-event clientX/Y regardless of pinch-zoom level or browser.
+  function cellAtPoint(cx, cy) {
+    const boardEl = document.querySelector('.board');
+    if (!boardEl) return null;
+    const r = boardEl.getBoundingClientRect();
+    const BOARD_PADDING = 6; // px — must match .board { padding: 6px } in App.css
+    const gridLeft = r.left + BOARD_PADDING;
+    const gridTop  = r.top  + BOARD_PADDING;
+    const gridW    = r.width  - 2 * BOARD_PADDING;
+    const gridH    = r.height - 2 * BOARD_PADDING;
+    if (cx < gridLeft || cx > gridLeft + gridW || cy < gridTop || cy > gridTop + gridH) return null;
+    const col = Math.min(14, Math.floor((cx - gridLeft) / (gridW / 15)));
+    const row = Math.min(14, Math.floor((cy - gridTop)  / (gridH / 15)));
+    return [row, col];
   }
 
   function beginDrag(e, info) {
@@ -198,45 +204,58 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
     justDraggedRef.current = true;
     requestAnimationFrame(() => { justDraggedRef.current = false; });
 
-    const [dropX, dropY] = layoutCoords(e.clientX, e.clientY);
-    const target = document.elementFromPoint(dropX, dropY);
-    const cellEl = target?.closest('[data-cell-row]');
-    const rackEl = target?.closest('[data-rack-dropzone]');
+    const { clientX: cx, clientY: cy } = e;
 
-    if (cellEl) {
-      const row = Number(cellEl.dataset.cellRow);
-      const col = Number(cellEl.dataset.cellCol);
-      if (state.board[row][col] || pendingByCell.has(`${row},${col}`)) return;
-      if (d.source === 'rack') {
-        placeRackTileAt(d.uid, row, col);
-        setSelectedUid(null);
-      } else {
-        setPending((prev) => {
-          const existing = prev.find((p) => p.uid === d.uid);
-          if (!existing) return prev;
-          return prev.filter((p) => p.uid !== d.uid).concat([{ ...existing, row, col }]);
-        });
+    // Board drop — pure geometry so it works correctly when pinch-zoomed.
+    const cell = cellAtPoint(cx, cy);
+    if (cell) {
+      const [row, col] = cell;
+      if (!state.board[row][col] && !pendingByCell.has(`${row},${col}`)) {
+        if (d.source === 'rack') {
+          placeRackTileAt(d.uid, row, col);
+          setSelectedUid(null);
+        } else {
+          setPending((prev) => {
+            const existing = prev.find((p) => p.uid === d.uid);
+            if (!existing) return prev;
+            return prev.filter((p) => p.uid !== d.uid).concat([{ ...existing, row, col }]);
+          });
+        }
       }
-    } else if (rackEl && d.source === 'board') {
-      setPending((prev) => prev.filter((p) => p.uid !== d.uid));
-    } else if (rackEl && d.source === 'rack') {
-      // Reorder rack: insert dragged tile before/after the tile under the pointer.
-      const tileEl = target?.closest('[data-rack-uid]');
-      if (tileEl && tileEl.dataset.rackUid !== String(d.uid)) {
-        const dropUid = tileEl.dataset.rackUid;
-        const rect = tileEl.getBoundingClientRect();
-        const insertAfter = e.clientX > rect.left + rect.width / 2;
-        setRackTiles((prev) => {
-          const without = prev.filter((t) => t.uid !== d.uid);
-          const dragged = prev.find((t) => t.uid === d.uid);
-          if (!dragged) return prev;
-          const dropIdx = without.findIndex((t) => t.uid === dropUid);
-          if (dropIdx === -1) return prev;
-          const insertAt = insertAfter ? dropIdx + 1 : dropIdx;
-          const next = [...without];
-          next.splice(insertAt, 0, dragged);
-          return next;
-        });
+      return;
+    }
+
+    // Rack drop — check bounds via getBoundingClientRect (same coord space as clientX/Y).
+    const rackEl = document.querySelector('[data-rack-dropzone]');
+    if (rackEl) {
+      const rr = rackEl.getBoundingClientRect();
+      if (cx >= rr.left && cx <= rr.right && cy >= rr.top && cy <= rr.bottom) {
+        if (d.source === 'board') {
+          setPending((prev) => prev.filter((p) => p.uid !== d.uid));
+        } else if (d.source === 'rack') {
+          // Reorder: find which tile the pointer is over and insert before/after it.
+          const tiles = [...rackEl.querySelectorAll('[data-rack-uid]')];
+          const targetTile = tiles.find((el) => {
+            if (el.dataset.rackUid === String(d.uid)) return false;
+            const tr = el.getBoundingClientRect();
+            return cx >= tr.left && cx <= tr.right && cy >= tr.top && cy <= tr.bottom;
+          });
+          if (targetTile) {
+            const dropUid = targetTile.dataset.rackUid;
+            const tr = targetTile.getBoundingClientRect();
+            const insertAfter = cx > tr.left + tr.width / 2;
+            setRackTiles((prev) => {
+              const without = prev.filter((t) => t.uid !== d.uid);
+              const dragged = prev.find((t) => t.uid === d.uid);
+              if (!dragged) return prev;
+              const dropIdx = without.findIndex((t) => t.uid === dropUid);
+              if (dropIdx === -1) return prev;
+              const next = [...without];
+              next.splice(insertAfter ? dropIdx + 1 : dropIdx, 0, dragged);
+              return next;
+            });
+          }
+        }
       }
     }
   }
