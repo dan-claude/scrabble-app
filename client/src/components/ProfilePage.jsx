@@ -6,16 +6,21 @@ function formatDate(ts) {
   return new Date(ts * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export default function ProfilePage({ userToken, smsEnabled, onBack, onLogout }) {
+export default function ProfilePage({ userToken, onBack, onLogout }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [phoneInput, setPhoneInput] = useState('');
   const [phoneSaving, setPhoneSaving] = useState(false);
   const [phoneMsg, setPhoneMsg] = useState(null);
+  const [phoneOptedOut, setPhoneOptedOut] = useState(false);
 
   useEffect(() => {
     getProfile(userToken)
-      .then((d) => { setData(d); setPhoneInput(d.user.phone || ''); })
+      .then((d) => {
+        setData(d);
+        setPhoneInput(d.user.phone || '');
+        setPhoneOptedOut(d.user.phoneOptedOut || false);
+      })
       .catch(() => setError('Failed to load profile.'));
   }, [userToken]);
 
@@ -24,8 +29,14 @@ export default function ProfilePage({ userToken, smsEnabled, onBack, onLogout })
     setPhoneSaving(true);
     setPhoneMsg(null);
     try {
-      await updateProfile(userToken, { phone: phoneInput.trim() || null });
-      setPhoneMsg('Saved.');
+      const result = await updateProfile(userToken, { phone: phoneInput.trim() || null });
+      if (result.phoneOptedOut) {
+        setPhoneOptedOut(true);
+        setPhoneMsg(result.error || 'This number has opted out.');
+      } else {
+        setPhoneOptedOut(false);
+        setPhoneMsg('Saved. A confirmation text has been sent.');
+      }
     } catch {
       setPhoneMsg('Could not save. Please try again.');
     } finally {
@@ -39,6 +50,7 @@ export default function ProfilePage({ userToken, smsEnabled, onBack, onLogout })
     try {
       await updateProfile(userToken, { phone: null });
       setPhoneInput('');
+      setPhoneOptedOut(false);
       setPhoneMsg('Phone number removed.');
     } catch {
       setPhoneMsg('Could not remove. Please try again.');
@@ -143,39 +155,46 @@ export default function ProfilePage({ userToken, smsEnabled, onBack, onLogout })
         </>
       )}
 
-      {smsEnabled && (
-        <div className="profile-sms-section">
-          <h3 className="profile-section-title">SMS notifications</h3>
-          <p className="profile-sms-desc">Get a text message when it's your turn.</p>
-          <form className="profile-sms-form" onSubmit={handleSavePhone}>
-            <label className="profile-sms-label" htmlFor="sms-phone">Phone number</label>
-            <div className="profile-sms-row">
-              <input
-                id="sms-phone"
-                type="tel"
-                className="profile-sms-input"
-                placeholder="+1 555 000 0000"
-                value={phoneInput}
-                onChange={(e) => setPhoneInput(e.target.value)}
-                disabled={phoneSaving}
-              />
-              <button type="submit" className="profile-sms-save" disabled={phoneSaving}>
-                Save
-              </button>
-              {phoneInput && (
-                <button type="button" className="profile-sms-remove" onClick={handleRemovePhone} disabled={phoneSaving}>
-                  Remove
-                </button>
-              )}
-            </div>
-            {phoneMsg && <p className="profile-sms-msg">{phoneMsg}</p>}
-          </form>
-          <p className="profile-sms-consent">
-            By saving a phone number you agree to receive SMS messages from this app when it's your turn.
-            To opt out at any time, reply <strong>STOP</strong> to any message.
+      <div className="profile-sms-section">
+        <h3 className="profile-section-title">SMS notifications</h3>
+        <p className="profile-sms-desc">Get a text message when it's your turn.</p>
+        {phoneOptedOut && (
+          <p className="profile-sms-optout-warning">
+            This number has opted out of notifications. To re-subscribe, reply <strong>START</strong> to any previous message, then save your number again.
           </p>
-        </div>
-      )}
+        )}
+        <form className="profile-sms-form" onSubmit={handleSavePhone}>
+          <label className="profile-sms-label" htmlFor="sms-phone">Phone number</label>
+          <div className="profile-sms-row">
+            <input
+              id="sms-phone"
+              type="tel"
+              className="profile-sms-input"
+              placeholder="+1 555 000 0000"
+              value={phoneInput}
+              onChange={(e) => setPhoneInput(e.target.value)}
+              disabled={phoneSaving}
+            />
+            <button type="submit" className="profile-sms-save" disabled={phoneSaving}>
+              Save
+            </button>
+            {phoneInput && (
+              <button type="button" className="profile-sms-remove" onClick={handleRemovePhone} disabled={phoneSaving}>
+                Remove
+              </button>
+            )}
+          </div>
+          {phoneMsg && (
+            <p className={`profile-sms-msg${phoneOptedOut ? ' profile-sms-msg--error' : ''}`}>
+              {phoneMsg}
+            </p>
+          )}
+        </form>
+        <p className="profile-sms-consent">
+          By saving a phone number you agree to receive SMS messages from this app when it's your turn.
+          To opt out at any time, reply <strong>STOP</strong> to any message.
+        </p>
+      </div>
     </div>
   );
 }

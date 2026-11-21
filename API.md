@@ -587,7 +587,9 @@ finished games where this user's id appears on a player entry.
     name: string;
     email: string;
     picture: string;
-    createdAt: number;  // epoch seconds
+    createdAt: number;     // epoch seconds
+    phone: string | null;  // saved phone number, if any
+    phoneOptedOut: boolean; // true if this number has replied STOP
   };
   stats: {
     gamesPlayed: number;
@@ -607,6 +609,48 @@ finished games where this user's id appears on a player entry.
 ```
 
 **Errors:** `401` if the token is missing, invalid, or expired.
+
+---
+
+### `PATCH /api/profile`
+
+Update the signed-in user's profile. Currently only `phone` is writable.
+
+**Headers:** `Authorization: Bearer <userToken>`
+
+**Body**
+```json
+{ "phone": "+15551234567" }   // or null / "" to remove
+```
+
+**Response** `200 OK`
+```ts
+{ phone: string | null; phoneOptedOut: boolean; }
+```
+
+When `phone` is new (not previously saved), an opt-in confirmation SMS is sent immediately.
+If the number is in the opt-out table the response includes `"error"` and no change is saved:
+```ts
+{ phone: string | null; phoneOptedOut: true; error: string; }
+```
+
+**Errors:** `401` unauthenticated; `400` phone too long (> 20 chars).
+
+---
+
+### `POST /api/sms/webhook`
+
+Receives reply SMS from TextBelt when a player responds to a notification.
+TextBelt posts JSON `{ fromNumber, text, textId }`.
+
+- `STOP` → marks the number as opted out in the persistent opt-out table; sends confirmation.
+- `START` → clears the opt-out; sends re-subscribe confirmation.
+- `HELP` → sends the help message.
+- Anything else → logged and ignored.
+
+Always returns `200 {}`. Every event is logged to stdout (visible in Railway logs).
+
+**No authentication required** — this endpoint is called by TextBelt's servers.
 
 ---
 

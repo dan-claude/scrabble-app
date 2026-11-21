@@ -11,6 +11,8 @@ from werkzeug.security import safe_join
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth
+import sms_optout
+import textbelt_sms
 from game.dictionary import available_dictionaries, default_dictionary
 from game.game import (
     BINGO_BONUS,
@@ -46,6 +48,18 @@ rooms = RoomManager(build_store_from_env(BASE_DIR))
 _restored = rooms.load_from_store()
 if _restored:
     app.logger.info('Restored %d room(s) from persistent storage.', _restored)
+
+sms_optout.init(rooms.store)
+
+# Last base URL seen in a real request — used when SMS is triggered from a
+# background thread (bot loop) where request context is unavailable.
+_last_known_base_url = 'http://localhost:4000/'
+
+
+@app.before_request
+def _capture_base_url():
+    global _last_known_base_url
+    _last_known_base_url = request.host_url
 
 # --- simple per-IP rate limit on room creation (defends against a single
 # client flooding room creation to exhaust server memory) ---
@@ -246,7 +260,7 @@ def _maybe_play_bot(game):
     threading.Timer(1.0, _play).start()
 
 
-def _maybe_notify_turn(game, previous_turn_player_id):
+def _maybe_notify_turn(game, previous_turn_player_id, base_url=None):
     """Fire any server-triggered notification plugins for whoever's turn it
     now is - but only when the turn actually just changed to them, so this is
     safe to call after every action that could advance the turn (including
@@ -267,6 +281,30 @@ def _maybe_notify_turn(game, previous_turn_player_id):
                 'playerId': player.id,
                 'playerName': player.name,
             })
+    _maybe_send_sms_turn(game, player, base_url or _last_known_base_url)
+
+
+def _maybe_send_sms_turn(game, player, base_url):
+    """Send a turn-notification SMS if the player has a registered phone."""
+    if not player.user_id:
+        return
+    user = rooms.store.get_user(player.user_id) or auth._mem_users.get(player.user_id)
+    if not user:
+        return
+    phone = user.get('phone')
+    if not phone:
+        return
+    if sms_optout.is_opted_out(phone):
+        app.logger.info('SMS turn notify skipped (opted out): room=%s player=%s',
+                        game.room_code, player.name)
+        return
+    base = base_url.rstrip('/')
+    room_url = f'{base}/?room={game.room_code}&rejoin_token={player.id}'
+    webhook_url = f'{base}/api/sms/webhook'
+    message = textbelt_sms.msg_turn_notification(room_url)
+    app.logger.info('SMS turn notify: room=%s player=%s phone=%s',
+                    game.room_code, player.name, textbelt_sms._redact(phone))
+    textbelt_sms.send(phone, message, webhook_url)
 
 
 # ---------------------------------------------------------------------------
@@ -342,7 +380,7 @@ def start_game(code):
     rooms.persist(game)
     if game.status == 'finished':
         rooms.record_finished_game(game)
-    _maybe_notify_turn(game, previous_turn_player_id)
+    _maybe_notify_turn(game, previous_turn_player_id, request.host_url)
     _maybe_play_bot(game)
     return _state_response(game, player)
 
@@ -359,7 +397,7 @@ def place_tiles(code):
     rooms.persist(game)
     if game.status == 'finished':
         rooms.record_finished_game(game)
-    _maybe_notify_turn(game, previous_turn_player_id)
+    _maybe_notify_turn(game, previous_turn_player_id, request.host_url)
     _maybe_play_bot(game)
     return _state_response(game, player)
 
@@ -375,7 +413,7 @@ def pass_turn(code):
     rooms.persist(game)
     if game.status == 'finished':
         rooms.record_finished_game(game)
-    _maybe_notify_turn(game, previous_turn_player_id)
+    _maybe_notify_turn(game, previous_turn_player_id, request.host_url)
     _maybe_play_bot(game)
     return _state_response(game, player)
 
@@ -392,7 +430,7 @@ def exchange_tiles(code):
     rooms.persist(game)
     if game.status == 'finished':
         rooms.record_finished_game(game)
-    _maybe_notify_turn(game, previous_turn_player_id)
+    _maybe_notify_turn(game, previous_turn_player_id, request.host_url)
     _maybe_play_bot(game)
     return _state_response(game, player)
 
@@ -622,7 +660,9 @@ def profile():
     all_games = rooms.list_finished_games(limit=10000)
     stats = auth.compute_stats(user['id'], all_games)
     user_fields = {k: user[k] for k in ('id', 'name', 'email', 'picture', 'createdAt')}
-    user_fields['phone'] = user.get('phone')
+    phone = user.get('phone')
+    user_fields['phone'] = phone
+    user_fields['phoneOptedOut'] = sms_optout.is_opted_out(phone) if phone else False
     return {'user': user_fields, 'stats': stats}
 
 
@@ -638,12 +678,71 @@ def update_profile():
         phone = body['phone']
         if phone is None or phone == '':
             user.pop('phone', None)
+            rooms.store.save_user(user['id'], user)
         else:
             if not isinstance(phone, str) or len(phone) > 20:
                 raise GameError('Invalid phone number.')
-            user['phone'] = phone.strip()
-        rooms.store.save_user(user['id'], user)
-    return {'phone': user.get('phone')}
+            normalized = phone.strip()
+            if sms_optout.is_opted_out(normalized):
+                return {
+                    'phone': user.get('phone'),
+                    'phoneOptedOut': True,
+                    'error': 'This number has opted out. Reply START to any previous message to re-subscribe, then try again.',
+                }
+            is_new_phone = user.get('phone') != normalized
+            user['phone'] = normalized
+            rooms.store.save_user(user['id'], user)
+            if is_new_phone:
+                webhook_url = f'{request.host_url.rstrip("/")}/api/sms/webhook'
+                textbelt_sms.send(normalized, textbelt_sms.msg_optin_confirmation(), webhook_url)
+    phone = user.get('phone')
+    return {'phone': phone, 'phoneOptedOut': sms_optout.is_opted_out(phone) if phone else False}
+
+
+# ---------------------------------------------------------------------------
+# SMS webhook — TextBelt POSTs here when a player replies to a notification.
+# ---------------------------------------------------------------------------
+
+@app.post('/api/sms/webhook')
+def sms_webhook():
+    """Handle reply SMS from TextBelt (STOP / START / HELP or anything else).
+
+    TextBelt sends JSON: {"fromNumber": "+15551234567", "text": "STOP", "textId": "..."}
+    We respond 200 regardless so TextBelt doesn't retry.
+    """
+    data = request.get_json(silent=True) or request.form.to_dict()
+    from_number = str(data.get('fromNumber', '')).strip()
+    text = str(data.get('text', '')).strip()
+    text_id = str(data.get('textId', '')).strip()
+
+    app.logger.info('SMS webhook: from=%s textId=%s text=%r',
+                    textbelt_sms._redact(from_number), text_id, text)
+
+    if not from_number:
+        return {}, 200
+
+    keyword = text.upper().strip()
+    webhook_url = f'{request.host_url.rstrip("/")}/api/sms/webhook'
+
+    if keyword == 'STOP':
+        sms_optout.set_opted_out(from_number, True)
+        app.logger.info('SMS webhook: STOP received — opted out %s', textbelt_sms._redact(from_number))
+        textbelt_sms.send(from_number, textbelt_sms.msg_stop_confirmation(), webhook_url)
+
+    elif keyword == 'START':
+        sms_optout.set_opted_out(from_number, False)
+        app.logger.info('SMS webhook: START received — opted in %s', textbelt_sms._redact(from_number))
+        textbelt_sms.send(from_number, textbelt_sms.msg_start_confirmation(), webhook_url)
+
+    elif keyword == 'HELP':
+        app.logger.info('SMS webhook: HELP received from %s', textbelt_sms._redact(from_number))
+        textbelt_sms.send(from_number, textbelt_sms.msg_help(), webhook_url)
+
+    else:
+        app.logger.info('SMS webhook: unrecognised reply %r from %s — ignoring',
+                        text, textbelt_sms._redact(from_number))
+
+    return {}, 200
 
 
 # ---------------------------------------------------------------------------

@@ -394,6 +394,21 @@
   margin: 8px 0 0;
 }
 
+.profile-sms-msg--error {
+  color: #c0392b;
+}
+
+.profile-sms-optout-warning {
+  font-size: 13px;
+  color: #c0392b;
+  background: #fdf0ee;
+  border: 1px solid #f5c6c0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
 .profile-sms-consent {
   margin-top: 14px;
   font-size: 12px;
