@@ -13,7 +13,7 @@ const POLL_INTERVAL_MS = 1000;
 const SMS_NUDGE_KEY = 'sms_nudge_dismissed';
 
 function shouldShowSmsNudge(user) {
-  if (!user) return false;
+  if (!user || !user.smsEnabled) return false;
   if (!user.phone || user.phoneOptedOut) {
     try { return !localStorage.getItem(SMS_NUDGE_KEY); } catch { return false; }
   }
@@ -197,6 +197,7 @@ function App() {
         {header}
         <ProfilePage
           userToken={userToken}
+          smsEnabled={user?.smsEnabled ?? false}
           onBack={() => setShowProfile(false)}
           onLogout={handleLogout}
         />

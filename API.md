@@ -517,6 +517,7 @@ Return the signed-in user's basic profile.
     picture: string;
     phone: string | null;        // registered SMS phone number
     phoneOptedOut: boolean;      // true if the number has opted out via STOP
+    smsEnabled: boolean;         // true if TEXTBELT_KEY is configured on the server
   };
 }
 ```

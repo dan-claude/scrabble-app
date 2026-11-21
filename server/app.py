@@ -633,6 +633,7 @@ def auth_me():
         **{k: user[k] for k in ('id', 'name', 'email', 'picture')},
         'phone': phone,
         'phoneOptedOut': sms_optout.is_opted_out(phone) if phone else False,
+        'smsEnabled': textbelt_sms.is_configured(),
     }}
 
 

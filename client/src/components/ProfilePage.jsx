@@ -6,7 +6,7 @@ function formatDate(ts) {
   return new Date(ts * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export default function ProfilePage({ userToken, onBack, onLogout }) {
+export default function ProfilePage({ userToken, smsEnabled, onBack, onLogout }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [phoneInput, setPhoneInput] = useState('');
@@ -155,7 +155,7 @@ export default function ProfilePage({ userToken, onBack, onLogout }) {
         </>
       )}
 
-      <div className="profile-sms-section">
+      {smsEnabled && <div className="profile-sms-section">
         <h3 className="profile-section-title">SMS notifications</h3>
         <p className="profile-sms-desc">Get a text message when it's your turn.</p>
         {phoneOptedOut && (
@@ -194,7 +194,7 @@ export default function ProfilePage({ userToken, onBack, onLogout }) {
           By saving a phone number you agree to receive SMS messages from this app when it's your turn.
           To opt out at any time, reply <strong>STOP</strong> to any message.
         </p>
-      </div>
+      </div>}
     </div>
   );
 }

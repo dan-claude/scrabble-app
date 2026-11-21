@@ -28,6 +28,10 @@ def _key() -> str:
     return os.environ.get('TEXTBELT_KEY', '')
 
 
+def is_configured() -> bool:
+    return bool(_key())
+
+
 # ---------------------------------------------------------------------------
 # Message templates  (10DLC-compliant)
 # ---------------------------------------------------------------------------
