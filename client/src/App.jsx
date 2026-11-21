@@ -10,12 +10,14 @@ import './App.css';
 const POLL_INTERVAL_MS = 1000;
 
 
-const SMS_NUDGE_KEY = 'sms_nudge_dismissed';
+function smsNudgeKey(userId) {
+  return `sms_nudge_dismissed_${userId}`;
+}
 
 function shouldShowSmsNudge(user) {
   if (!user || !user.smsEnabled) return false;
   if (!user.phone || user.phoneOptedOut) {
-    try { return !localStorage.getItem(SMS_NUDGE_KEY); } catch { return false; }
+    try { return !localStorage.getItem(smsNudgeKey(user.id)); } catch { return false; }
   }
   return false;
 }
@@ -161,7 +163,7 @@ function App() {
   }
 
   function dismissSmsNudge() {
-    try { localStorage.setItem(SMS_NUDGE_KEY, '1'); } catch {}
+    try { if (user) localStorage.setItem(smsNudgeKey(user.id), '1'); } catch {}
     setShowSmsNudge(false);
   }
 
