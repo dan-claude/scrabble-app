@@ -950,7 +950,7 @@
   min-height: 3.5rem;
   width: 100%;
   max-width: 600px;
-  touch-action: none;
+  touch-action: pinch-zoom;
 }
 
 .rack-tile {
@@ -965,7 +965,7 @@
   justify-content: center;
   box-shadow: 0 2px 3px rgba(0, 0, 0, 0.3);
   cursor: grab;
-  touch-action: none;
+  touch-action: pinch-zoom;
 }
 
 .rack-tile:active {
