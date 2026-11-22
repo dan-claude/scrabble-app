@@ -39,6 +39,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
   const [busy, setBusy] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [dragVisual, setDragVisual] = useState(null); // { letter, isBlank, x, y }
+  const [draggingUid, setDraggingUid] = useState(null);
   const dragInfoRef = useRef(null);
   const justDraggedRef = useRef(false);
 
@@ -177,6 +178,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
       const dy = e.clientY - d.startY;
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       d.moved = true;
+      setDraggingUid(d.uid);
     }
     setDragVisual({ letter: d.letter, isBlank: d.isBlank, x: e.clientX, y: e.clientY });
   }
@@ -186,6 +188,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
     if (!d || d.pointerId !== e.pointerId) return;
     dragInfoRef.current = null;
     setDragVisual(null);
+    setDraggingUid(null);
     if (!d.moved) return; // plain tap - the element's own onClick already handles it
 
     // Suppress the click event the browser fires right after this pointerup,
@@ -253,6 +256,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
     if (!d || d.pointerId !== e.pointerId) return;
     dragInfoRef.current = null;
     setDragVisual(null);
+    setDraggingUid(null);
     // Clear selection so a cancelled drag can't accidentally place the tile
     // when the user next taps a board cell.
     setSelectedUid(null);
@@ -546,6 +550,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
                 <Rack
                   tiles={availableRack}
                   selectedUid={selectedUid}
+                  draggingUid={draggingUid}
                   exchangeMode={exchangeMode}
                   exchangeSelected={exchangeSelected}
                   onSelect={selectRackTile}

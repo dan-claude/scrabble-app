@@ -979,6 +979,11 @@
   cursor: grabbing;
 }
 
+.rack-tile.dragging {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .drag-ghost {
   position: fixed;
   z-index: 1000;

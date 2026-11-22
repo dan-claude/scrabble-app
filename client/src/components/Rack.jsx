@@ -7,6 +7,7 @@ const VALUES = {
 export default function Rack({
   tiles,
   selectedUid,
+  draggingUid,
   exchangeSelected,
   exchangeMode,
   onSelect,
@@ -25,9 +26,11 @@ export default function Rack({
     >
       {tiles.map((t, idx) => {
         const isSelected = t.uid === selectedUid;
+        const isDragging = t.uid === draggingUid;
         const isExchangeSelected = exchangeSelected?.includes(t.uid);
         const classes = ['rack-tile'];
         if (isSelected) classes.push('selected');
+        if (isDragging) classes.push('dragging');
         if (isExchangeSelected) classes.push('exchange-selected');
         return (
           <button
