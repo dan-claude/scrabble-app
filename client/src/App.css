@@ -858,6 +858,10 @@
   width: 100%;
   max-width: 600px;
   aspect-ratio: 1 / 1;
+  /* Prevent iOS from starting a scroll/pan gesture when a touch that began on
+     the rack moves over the board, which would release pointer capture and
+     cause the tile to land on the board instead of staying on the rack. */
+  touch-action: pinch-zoom;
 }
 
 .board-row {

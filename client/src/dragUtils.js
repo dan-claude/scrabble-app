@@ -38,3 +38,47 @@ export function cellFromRect(boardRect, cx, cy) {
 export function pointInRect(rect, cx, cy) {
   return cx >= rect.left && cx <= rect.right && cy >= rect.top && cy <= rect.bottom;
 }
+
+// ---------------------------------------------------------------------------
+// Coordinate normalisation for pinch-zoom on iOS
+// ---------------------------------------------------------------------------
+
+// On iOS 13-14, getBoundingClientRect() returns layout-viewport (CSS pixel)
+// coordinates while PointerEvent.clientX/Y return visual-viewport coordinates.
+// On iOS 15+ both use visual-viewport coordinates.
+// We detect which space getBoundingClientRect() is in and convert accordingly.
+
+let _bcrSpaceDetected = false;
+let _bcrIsVisual = true; // safe default: assume modern behaviour
+
+function _detectBcrSpace() {
+  if (_bcrSpaceDetected) return;
+  const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+  if (!vv || Math.abs(vv.scale - 1) < 0.01) return; // can't tell at scale=1
+  _bcrSpaceDetected = true;
+  const html = document.documentElement;
+  const rect = html.getBoundingClientRect();
+  // Visual mode: BCR width ≈ offsetWidth * scale.  Layout mode: BCR width ≈ offsetWidth.
+  _bcrIsVisual = rect.width > html.offsetWidth * 1.3;
+}
+
+/**
+ * Convert PointerEvent clientX/Y to the same coordinate space used by
+ * getBoundingClientRect() on the current browser/iOS version.
+ *
+ * Returns [normalizedX, normalizedY].
+ */
+export function normalizeClientCoords(clientX, clientY) {
+  _detectBcrSpace();
+  if (_bcrIsVisual) return [clientX, clientY];
+  const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+  if (!vv || Math.abs(vv.scale - 1) < 0.01) return [clientX, clientY];
+  // BCR is in layout coords; convert visual clientX/Y → layout
+  return [vv.offsetLeft + clientX / vv.scale, vv.offsetTop + clientY / vv.scale];
+}
+
+/** Allow tests to reset the cached detection (call before mocking visualViewport). */
+export function _resetBcrSpaceCache() {
+  _bcrSpaceDetected = false;
+  _bcrIsVisual = true;
+}

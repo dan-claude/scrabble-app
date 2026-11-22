@@ -11,7 +11,7 @@ import {
   updateNotificationSetup as apiUpdateNotificationSetup,
 } from '../api';
 import useBrowserNotifications from '../hooks/useBrowserNotifications';
-import { cellFromRect, pointInRect, BOARD_PADDING_PX } from '../dragUtils';
+import { cellFromRect, pointInRect, normalizeClientCoords, BOARD_PADDING_PX } from '../dragUtils';
 import Board from './Board';
 import Rack from './Rack';
 import ScoreBoard from './ScoreBoard';
@@ -178,7 +178,8 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       d.moved = true;
     }
-    setDragVisual({ letter: d.letter, isBlank: d.isBlank, x: e.clientX, y: e.clientY });
+    const [gx, gy] = normalizeClientCoords(e.clientX, e.clientY);
+    setDragVisual({ letter: d.letter, isBlank: d.isBlank, x: gx, y: gy });
   }
 
   function handleDragPointerUp(e) {
@@ -193,7 +194,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
     justDraggedRef.current = true;
     requestAnimationFrame(() => { justDraggedRef.current = false; });
 
-    const { clientX: cx, clientY: cy } = e;
+    const [cx, cy] = normalizeClientCoords(e.clientX, e.clientY);
 
     // Board drop — pure geometry so it works correctly when pinch-zoomed.
     const cell = cellAtPoint(cx, cy);
@@ -254,6 +255,9 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
     if (!d || d.pointerId !== e.pointerId) return;
     dragInfoRef.current = null;
     setDragVisual(null);
+    // Clear selection so a cancelled drag can't accidentally place the tile
+    // when the user next taps a board cell.
+    setSelectedUid(null);
   }
 
   function recallAll() {

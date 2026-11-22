@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { cellFromRect, pointInRect, BOARD_COLS, BOARD_ROWS, BOARD_PADDING_PX } from './dragUtils';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { cellFromRect, pointInRect, normalizeClientCoords, _resetBcrSpaceCache, BOARD_COLS, BOARD_ROWS, BOARD_PADDING_PX } from './dragUtils';
 
 function makeRect(left, top, width, height) {
   return { left, top, right: left + width, bottom: top + height, width, height };
@@ -233,5 +233,114 @@ describe('pointInRect', () => {
 
   it('returns false just outside bottom', () => {
     expect(pointInRect(r, 60, 70.1)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeClientCoords
+// ---------------------------------------------------------------------------
+
+describe('normalizeClientCoords — no zoom (scale = 1)', () => {
+  beforeEach(() => {
+    _resetBcrSpaceCache();
+    // Simulate no zoom
+    Object.defineProperty(window, 'visualViewport', {
+      value: { scale: 1, offsetLeft: 0, offsetTop: 0 },
+      configurable: true,
+    });
+  });
+  afterEach(() => {
+    _resetBcrSpaceCache();
+    Object.defineProperty(window, 'visualViewport', { value: undefined, configurable: true });
+  });
+
+  it('passes coords through unchanged', () => {
+    expect(normalizeClientCoords(150, 300)).toEqual([150, 300]);
+  });
+});
+
+describe('normalizeClientCoords — iOS 15+ (BCR in visual coords)', () => {
+  // On iOS 15+, getBoundingClientRect() returns visual-viewport coordinates,
+  // which match PointerEvent.clientX/Y directly. No conversion is needed.
+  beforeEach(() => {
+    _resetBcrSpaceCache();
+    Object.defineProperty(window, 'visualViewport', {
+      value: { scale: 2, offsetLeft: 0, offsetTop: 400 },
+      configurable: true,
+    });
+    // Simulate document.documentElement with BCR width = offsetWidth * scale (visual mode)
+    const origGetBCR = document.documentElement.getBoundingClientRect.bind(document.documentElement);
+    Object.defineProperty(document.documentElement, 'offsetWidth', { value: 390, configurable: true });
+    document.documentElement.getBoundingClientRect = () => ({ width: 780, height: 1500 }); // 390 * 2
+  });
+  afterEach(() => {
+    _resetBcrSpaceCache();
+    Object.defineProperty(window, 'visualViewport', { value: undefined, configurable: true });
+    document.documentElement.getBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    Object.defineProperty(document.documentElement, 'offsetWidth', { value: undefined, configurable: true });
+  });
+
+  it('passes coords through unchanged (both in visual space)', () => {
+    expect(normalizeClientCoords(200, 150)).toEqual([200, 150]);
+  });
+
+  it('a touch at visual y=150 stays at y=150 (rack area, not board)', () => {
+    expect(normalizeClientCoords(100, 150)).toEqual([100, 150]);
+  });
+});
+
+describe('normalizeClientCoords — iOS 13-14 (BCR in layout coords)', () => {
+  // On iOS 13-14, getBoundingClientRect() returns CSS-pixel (layout) coordinates
+  // while PointerEvent.clientX/Y are in visual-viewport coordinates.
+  // normalizeClientCoords must convert the pointer coords to layout space.
+  //
+  // Scenario: 2× zoom, visual viewport scrolled to show layout y=400+.
+  // Board is at layout y=0–390. Rack is at layout y=410–460.
+  // User's finger is on the rack at visual y=20 (= layout 400 + 20/2 = 410).
+  // Without normalization: clientY=20 < board.bottom=390 → erroneously IN board.
+  // With normalization: layoutY = 400 + 20/2 = 410 > board.bottom=390 → NOT in board. ✓
+  beforeEach(() => {
+    _resetBcrSpaceCache();
+    Object.defineProperty(window, 'visualViewport', {
+      value: { scale: 2, offsetLeft: 0, offsetTop: 400 },
+      configurable: true,
+    });
+    // Simulate BCR returning layout coordinates: width ≈ offsetWidth (not scaled)
+    Object.defineProperty(document.documentElement, 'offsetWidth', { value: 390, configurable: true });
+    document.documentElement.getBoundingClientRect = () => ({ width: 390, height: 900 }); // layout, not scaled
+  });
+  afterEach(() => {
+    _resetBcrSpaceCache();
+    Object.defineProperty(window, 'visualViewport', { value: undefined, configurable: true });
+    document.documentElement.getBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    Object.defineProperty(document.documentElement, 'offsetWidth', { value: undefined, configurable: true });
+  });
+
+  it('converts visual coords to layout coords', () => {
+    // visual y=20 → layout y = offsetTop + 20/scale = 400 + 10 = 410
+    const [nx, ny] = normalizeClientCoords(0, 20);
+    expect(ny).toBeCloseTo(410);
+  });
+
+  it('a touch on rack (visual y=20) maps to layout y=410, not inside board (0–390)', () => {
+    const boardRect = makeRect(0, 0, 390, 390); // layout coords
+    const [nx, ny] = normalizeClientCoords(195, 20);
+    // layout y=410 > board.bottom 390 → cellFromRect returns null (not on board)
+    expect(cellFromRect(boardRect, nx, ny)).toBeNull();
+  });
+
+  it('a touch on board (visual y=0) maps to layout y=400, also not in board', () => {
+    const boardRect = makeRect(0, 0, 390, 390);
+    const [nx, ny] = normalizeClientCoords(195, 0);
+    // layout y=400 > 390 → not in board
+    expect(cellFromRect(boardRect, nx, ny)).toBeNull();
+  });
+
+  it('a touch in center of board in layout coords hits the board', () => {
+    // Board at layout y=0–390; touch at layout y=195 is inside.
+    // In visual coords: (195 - 400) * 2 = negative — above viewport, unreachable.
+    // This just verifies the inverse: if we were ALREADY in layout space, board check works.
+    const boardRect = makeRect(0, 0, 390, 390);
+    expect(cellFromRect(boardRect, 195, 195)).not.toBeNull();
   });
 });
