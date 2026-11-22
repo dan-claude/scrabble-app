@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { cellFromRect, pointInRect, normalizeClientCoords, _resetBcrSpaceCache, BOARD_COLS, BOARD_ROWS, BOARD_PADDING_PX } from './dragUtils';
+import { cellFromRect, pointInRect, normalizeClientCoords, clientToFixed, _resetBcrSpaceCache, BOARD_COLS, BOARD_ROWS, BOARD_PADDING_PX } from './dragUtils';
 
 function makeRect(left, top, width, height) {
   return { left, top, right: left + width, bottom: top + height, width, height };
@@ -342,5 +342,91 @@ describe('normalizeClientCoords — iOS 13-14 (BCR in layout coords)', () => {
     // This just verifies the inverse: if we were ALREADY in layout space, board check works.
     const boardRect = makeRect(0, 0, 390, 390);
     expect(cellFromRect(boardRect, 195, 195)).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clientToFixed
+// ---------------------------------------------------------------------------
+
+function mockViewport(scale, offsetLeft, offsetTop, scrollX = 0, scrollY = 0) {
+  Object.defineProperty(window, 'visualViewport', {
+    value: { scale, offsetLeft, offsetTop },
+    configurable: true,
+  });
+  Object.defineProperty(window, 'scrollX', { value: scrollX, configurable: true });
+  Object.defineProperty(window, 'scrollY', { value: scrollY, configurable: true });
+}
+
+function resetViewport() {
+  Object.defineProperty(window, 'visualViewport', { value: undefined, configurable: true });
+  Object.defineProperty(window, 'scrollX', { value: 0, configurable: true });
+  Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });
+}
+
+describe('clientToFixed — no zoom', () => {
+  afterEach(resetViewport);
+
+  it('returns coords unchanged when scale = 1', () => {
+    mockViewport(1, 0, 0);
+    expect(clientToFixed(150, 300)).toEqual([150, 300]);
+  });
+
+  it('returns coords unchanged when visualViewport is unavailable', () => {
+    Object.defineProperty(window, 'visualViewport', { value: null, configurable: true });
+    expect(clientToFixed(150, 300)).toEqual([150, 300]);
+  });
+});
+
+describe('clientToFixed — zoomed, no extra visual pan', () => {
+  // offsetLeft === scrollX, offsetTop === scrollY → no correction needed.
+  afterEach(resetViewport);
+
+  it('returns coords unchanged when offsetTop equals scrollY', () => {
+    mockViewport(2, 0, 300, 0, 300);
+    expect(clientToFixed(100, 211)).toEqual([100, 211]);
+  });
+
+  it('returns coords unchanged when page is at top and no pan', () => {
+    mockViewport(2, 0, 0, 0, 0);
+    expect(clientToFixed(97, 211)).toEqual([97, 211]);
+  });
+});
+
+describe('clientToFixed — zoomed with extra visual pan (the rack-on-second-line bug)', () => {
+  // The user scrolled to the rack (scrollY = 300), then pinch-zoomed near the
+  // bottom of the page. iOS clamped the visual viewport so offsetTop (400) > scrollY (300).
+  // clientY is measured from the layout viewport top (pageY - scrollY).
+  // position:fixed on iOS 15+ is measured from the visual viewport top.
+  // The pan gap = offsetTop - scrollY = 100 must be subtracted.
+  afterEach(resetViewport);
+
+  it('subtracts vertical pan gap', () => {
+    mockViewport(2, 0, 400, 0, 300); // pan gap = 100
+    // Finger at layout y=561, clientY = 561 - 300 = 261.
+    // Expected fixed y = 261 - 100 = 161 (from visual top).
+    expect(clientToFixed(0, 261)).toEqual([0, 161]);
+  });
+
+  it('subtracts horizontal pan gap', () => {
+    mockViewport(2, 80, 0, 50, 0); // horizontal pan gap = 30
+    expect(clientToFixed(150, 0)).toEqual([120, 0]);
+  });
+
+  it('subtracts both axes', () => {
+    mockViewport(2, 80, 400, 50, 300);
+    expect(clientToFixed(150, 261)).toEqual([120, 161]);
+  });
+
+  it('ghost lands on finger: BCR top matches corrected clientY', () => {
+    // Board BCR.top (visual coords): board_layout_y - offsetTop = 100 - 400 = -300
+    // Finger at top of board: clientY (layout) = 100 - 300 = -200.
+    // After clientToFixed: -200 - (400-300) = -300 = BCR.top ✓
+    mockViewport(2, 0, 400, 0, 300);
+    const boardLayoutTop = 100;
+    const bcrTop = boardLayoutTop - 400; // -300 (visual coords, iOS 15+)
+    const clientY = boardLayoutTop - 300; // -200 (layout minus scrollY)
+    const [, fixedY] = clientToFixed(0, clientY);
+    expect(fixedY).toBeCloseTo(bcrTop);
   });
 });

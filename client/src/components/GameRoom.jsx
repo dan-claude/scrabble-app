@@ -11,7 +11,7 @@ import {
   updateNotificationSetup as apiUpdateNotificationSetup,
 } from '../api';
 import useBrowserNotifications from '../hooks/useBrowserNotifications';
-import { cellFromRect, pointInRect, BOARD_PADDING_PX } from '../dragUtils';
+import { cellFromRect, pointInRect, clientToFixed, BOARD_PADDING_PX } from '../dragUtils';
 import Board from './Board';
 import Rack from './Rack';
 import ScoreBoard from './ScoreBoard';
@@ -180,7 +180,8 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
       d.moved = true;
       setDraggingUid(d.uid);
     }
-    setDragVisual({ letter: d.letter, isBlank: d.isBlank, x: e.clientX, y: e.clientY });
+    const [gx, gy] = clientToFixed(e.clientX, e.clientY);
+    setDragVisual({ letter: d.letter, isBlank: d.isBlank, x: gx, y: gy });
   }
 
   function handleDragPointerUp(e) {
@@ -196,8 +197,9 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
     justDraggedRef.current = true;
     requestAnimationFrame(() => { justDraggedRef.current = false; });
 
-    // Board drop — pure geometry so it works correctly when pinch-zoomed.
-    const cell = cellAtPoint(e.clientX, e.clientY);
+    // Board drop — convert to fixed-element coordinate space first.
+    const [cx, cy] = clientToFixed(e.clientX, e.clientY);
+    const cell = cellAtPoint(cx, cy);
     if (cell) {
       const [row, col] = cell;
       if (!state.board[row][col] && !pendingByCell.has(`${row},${col}`)) {
@@ -215,8 +217,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
       return;
     }
 
-    // Rack drop — check bounds via getBoundingClientRect (same coord space as clientX/Y).
-    const cx = e.clientX, cy = e.clientY;
+    // Rack drop — use the same corrected coords as the board check above.
     const rackEl = document.querySelector('[data-rack-dropzone]');
     if (rackEl) {
       const rr = rackEl.getBoundingClientRect();

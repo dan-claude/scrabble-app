@@ -82,3 +82,28 @@ export function _resetBcrSpaceCache() {
   _bcrSpaceDetected = false;
   _bcrIsVisual = true;
 }
+
+// ---------------------------------------------------------------------------
+// Ghost positioning for pinch-zoomed iOS
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert PointerEvent clientX/Y to the coordinate space used by
+ * `position: fixed` elements on iOS Safari.
+ *
+ * On iOS 15+, `position: fixed` is anchored to the visual viewport.
+ * `clientX/Y` is measured from the layout viewport's top-left
+ * (pageX - scrollX), so when the visual viewport has been panned
+ * beyond the layout scroll (visualViewport.offsetTop > window.scrollY —
+ * which happens when the user zooms in near the bottom of the page),
+ * we subtract the extra pan so the fixed ghost lands on the finger.
+ */
+export function clientToFixed(clientX, clientY) {
+  if (typeof window === 'undefined') return [clientX, clientY];
+  const vv = window.visualViewport;
+  if (!vv || Math.abs(vv.scale - 1) < 0.01) return [clientX, clientY];
+  const panX = vv.offsetLeft - (window.scrollX || 0);
+  const panY = vv.offsetTop  - (window.scrollY || 0);
+  if (Math.abs(panX) < 0.5 && Math.abs(panY) < 0.5) return [clientX, clientY];
+  return [clientX - panX, clientY - panY];
+}
