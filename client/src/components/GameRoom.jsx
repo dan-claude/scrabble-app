@@ -11,6 +11,7 @@ import {
   updateNotificationSetup as apiUpdateNotificationSetup,
 } from '../api';
 import useBrowserNotifications from '../hooks/useBrowserNotifications';
+import { cellFromRect, pointInRect, BOARD_PADDING_PX } from '../dragUtils';
 import Board from './Board';
 import Rack from './Rack';
 import ScoreBoard from './ScoreBoard';
@@ -125,22 +126,10 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
 
   const DRAG_THRESHOLD = 6; // px of movement before a tap becomes a drag
 
-  // Returns the board cell [row, col] under (cx, cy), or null.
-  // Uses getBoundingClientRect which is in the same coordinate space as
-  // pointer-event clientX/Y regardless of pinch-zoom level or browser.
   function cellAtPoint(cx, cy) {
     const boardEl = document.querySelector('.board');
     if (!boardEl) return null;
-    const r = boardEl.getBoundingClientRect();
-    const BOARD_PADDING = 6; // px — must match .board { padding: 6px } in App.css
-    const gridLeft = r.left + BOARD_PADDING;
-    const gridTop  = r.top  + BOARD_PADDING;
-    const gridW    = r.width  - 2 * BOARD_PADDING;
-    const gridH    = r.height - 2 * BOARD_PADDING;
-    if (cx < gridLeft || cx > gridLeft + gridW || cy < gridTop || cy > gridTop + gridH) return null;
-    const col = Math.min(14, Math.floor((cx - gridLeft) / (gridW / 15)));
-    const row = Math.min(14, Math.floor((cy - gridTop)  / (gridH / 15)));
-    return [row, col];
+    return cellFromRect(boardEl.getBoundingClientRect(), cx, cy);
   }
 
   function beginDrag(e, info) {
@@ -229,7 +218,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
     const rackEl = document.querySelector('[data-rack-dropzone]');
     if (rackEl) {
       const rr = rackEl.getBoundingClientRect();
-      if (cx >= rr.left && cx <= rr.right && cy >= rr.top && cy <= rr.bottom) {
+      if (pointInRect(rr, cx, cy)) {
         if (d.source === 'board') {
           setPending((prev) => prev.filter((p) => p.uid !== d.uid));
         } else if (d.source === 'rack') {
