@@ -11,7 +11,7 @@ import {
   updateNotificationSetup as apiUpdateNotificationSetup,
 } from '../api';
 import useBrowserNotifications from '../hooks/useBrowserNotifications';
-import { cellFromRect, pointInRect, normalizeClientCoords, BOARD_PADDING_PX } from '../dragUtils';
+import { cellFromRect, pointInRect, BOARD_PADDING_PX } from '../dragUtils';
 import Board from './Board';
 import Rack from './Rack';
 import ScoreBoard from './ScoreBoard';
@@ -178,8 +178,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       d.moved = true;
     }
-    const [gx, gy] = normalizeClientCoords(e.clientX, e.clientY);
-    setDragVisual({ letter: d.letter, isBlank: d.isBlank, x: gx, y: gy });
+    setDragVisual({ letter: d.letter, isBlank: d.isBlank, x: e.clientX, y: e.clientY });
   }
 
   function handleDragPointerUp(e) {
@@ -194,10 +193,8 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
     justDraggedRef.current = true;
     requestAnimationFrame(() => { justDraggedRef.current = false; });
 
-    const [cx, cy] = normalizeClientCoords(e.clientX, e.clientY);
-
     // Board drop — pure geometry so it works correctly when pinch-zoomed.
-    const cell = cellAtPoint(cx, cy);
+    const cell = cellAtPoint(e.clientX, e.clientY);
     if (cell) {
       const [row, col] = cell;
       if (!state.board[row][col] && !pendingByCell.has(`${row},${col}`)) {
