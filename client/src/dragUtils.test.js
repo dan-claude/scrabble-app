@@ -141,6 +141,73 @@ describe('cellFromRect — zoomed board (larger visual rect, same cell count)', 
   });
 });
 
+describe('cellFromRect — zoomed AND panned (board partially off-screen)', () => {
+  // After pinch-zooming 2× and scrolling right/down, the board's left edge may
+  // be off the left side of the viewport (negative left) and the top edge may
+  // be above the viewport (negative top).  getBoundingClientRect() faithfully
+  // reports those negative values; clientX/Y from the pointer event is still
+  // measured from the viewport origin.  The math must still produce the right
+  // cell.
+  const ZOOMED_SIZE = 600; // 2× zoom
+
+  it('returns correct cell after zoom + pan right (board left < 0)', () => {
+    // Board panned so its left edge is 150px off the left of the viewport
+    const rect = makeRect(-150, 0, ZOOMED_SIZE, ZOOMED_SIZE);
+    const cellW = (ZOOMED_SIZE - 2 * BOARD_PADDING_PX) / BOARD_COLS;
+
+    // col 5 center should be at rect.left + padding + 5.5 * cellW
+    const cx = -150 + BOARD_PADDING_PX + cellW * 5.5;
+    const cy = BOARD_PADDING_PX + (ZOOMED_SIZE - 2 * BOARD_PADDING_PX) / BOARD_ROWS * 2.5;
+    expect(cellFromRect(rect, cx, cy)).toEqual([2, 5]);
+  });
+
+  it('returns correct cell after zoom + pan down (board top < 0)', () => {
+    // Board panned so its top edge is 200px above the viewport
+    const rect = makeRect(0, -200, ZOOMED_SIZE, ZOOMED_SIZE);
+    const cellH = (ZOOMED_SIZE - 2 * BOARD_PADDING_PX) / BOARD_ROWS;
+
+    // row 10 center is at rect.top + padding + 10.5 * cellH
+    const cx = BOARD_PADDING_PX + (ZOOMED_SIZE - 2 * BOARD_PADDING_PX) / BOARD_COLS * 7.5;
+    const cy = -200 + BOARD_PADDING_PX + cellH * 10.5;
+    expect(cellFromRect(rect, cx, cy)).toEqual([10, 7]);
+  });
+
+  it('returns correct cell after zoom + pan in both directions', () => {
+    // Realistic scenario: 2× zoom, board panned so only the middle portion is visible
+    const rect = makeRect(-80, -120, ZOOMED_SIZE, ZOOMED_SIZE);
+    const cellW = (ZOOMED_SIZE - 2 * BOARD_PADDING_PX) / BOARD_COLS;
+    const cellH = (ZOOMED_SIZE - 2 * BOARD_PADDING_PX) / BOARD_ROWS;
+
+    // The star cell (center of the board) should always be [7,7]
+    const cx = -80 + BOARD_PADDING_PX + cellW * 7.5;
+    const cy = -120 + BOARD_PADDING_PX + cellH * 7.5;
+    expect(cellFromRect(rect, cx, cy)).toEqual([7, 7]);
+  });
+
+  it('returns null when pointer is in the viewport but outside the (panned) board', () => {
+    // Board panned so it starts at x=200; a pointer at x=100 is left of the board
+    const rect = makeRect(200, 0, ZOOMED_SIZE, ZOOMED_SIZE);
+    expect(cellFromRect(rect, 100, 300)).toBeNull();
+  });
+
+  it('all 225 cells reachable after zoom + pan', () => {
+    const rect = makeRect(-80, -120, ZOOMED_SIZE, ZOOMED_SIZE);
+    const cellW = (ZOOMED_SIZE - 2 * BOARD_PADDING_PX) / BOARD_COLS;
+    const cellH = (ZOOMED_SIZE - 2 * BOARD_PADDING_PX) / BOARD_ROWS;
+    const seen = new Set();
+    for (let row = 0; row < BOARD_ROWS; row++) {
+      for (let col = 0; col < BOARD_COLS; col++) {
+        const cx = -80 + BOARD_PADDING_PX + cellW * (col + 0.5);
+        const cy = -120 + BOARD_PADDING_PX + cellH * (row + 0.5);
+        const result = cellFromRect(rect, cx, cy);
+        expect(result).not.toBeNull();
+        seen.add(`${result[0]},${result[1]}`);
+      }
+    }
+    expect(seen.size).toBe(225);
+  });
+});
+
 describe('pointInRect', () => {
   const r = makeRect(10, 20, 100, 50);
 
