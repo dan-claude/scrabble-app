@@ -213,6 +213,7 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
     }
 
     // Rack drop — check bounds via getBoundingClientRect (same coord space as clientX/Y).
+    const cx = e.clientX, cy = e.clientY;
     const rackEl = document.querySelector('[data-rack-dropzone]');
     if (rackEl) {
       const rr = rackEl.getBoundingClientRect();
