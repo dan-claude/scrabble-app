@@ -1,5 +1,6 @@
 import random
 import re
+import secrets
 import time
 
 from .board import BOARD_SIZE, CENTER, create_bonus_grid, create_empty_board
@@ -21,12 +22,19 @@ class GameError(Exception):
     """Raised for any rule violation; the message is safe to show the player."""
 
 
+def _new_public_id():
+    return secrets.token_hex(8)
+
+
 class Player:
-    __slots__ = ('id', 'name', 'rack', 'score', 'last_seen', 'notification_setup', 'is_bot', 'bot_difficulty', 'user_id')
+    # `id` is the player's secret bearer token; `public_id` is what other
+    # participants see. Never put `id` in anything sent to another player.
+    __slots__ = ('id', 'public_id', 'name', 'rack', 'score', 'last_seen', 'notification_setup', 'is_bot', 'bot_difficulty', 'user_id')
     is_spectator = False
 
     def __init__(self, token, name, is_bot=False, bot_difficulty='hard'):
         self.id = token
+        self.public_id = _new_public_id()
         self.name = name
         self.rack = []
         self.score = 0
@@ -42,6 +50,7 @@ class Player:
     def to_dict(self):
         return {
             'id': self.id,
+            'public_id': self.public_id,
             'name': self.name,
             'rack': list(self.rack),
             'score': self.score,
@@ -56,6 +65,7 @@ class Player:
     def from_dict(cls, data):
         player = cls(data['id'], data['name'], is_bot=data.get('is_bot', False),
                      bot_difficulty=data.get('bot_difficulty', 'hard'))
+        player.public_id = data.get('public_id') or player.public_id
         player.rack = list(data.get('rack', []))
         player.score = data.get('score', 0)
         player.last_seen = data.get('last_seen', time.time())
@@ -69,20 +79,22 @@ class Spectator:
     no score, no turn, just a read-only look at the same State object every
     active player gets (see Game.join / Game._add_spectator)."""
 
-    __slots__ = ('id', 'name', 'last_seen')
+    __slots__ = ('id', 'public_id', 'name', 'last_seen')
     is_spectator = True
 
     def __init__(self, token, name):
         self.id = token
+        self.public_id = _new_public_id()
         self.name = name
         self.last_seen = time.time()
 
     def to_dict(self):
-        return {'id': self.id, 'name': self.name, 'last_seen': self.last_seen}
+        return {'id': self.id, 'public_id': self.public_id, 'name': self.name, 'last_seen': self.last_seen}
 
     @classmethod
     def from_dict(cls, data):
         spectator = cls(data['id'], data['name'])
+        spectator.public_id = data.get('public_id') or spectator.public_id
         spectator.last_seen = data.get('last_seen', time.time())
         return spectator
 
@@ -134,15 +146,15 @@ class Game:
         self.players.append(player)
         return player
 
-    def remove_bot(self, bot_id):
+    def remove_bot(self, bot_public_id):
         if self.status != 'lobby':
             raise GameError('Cannot remove a player after the game has started.')
-        player = self.get_player(bot_id)
+        player = next((p for p in self.players if p.public_id == bot_public_id), None)
         if not player:
             raise GameError('Player not found.')
         if not player.is_bot:
             raise GameError('Only bots can be removed this way.')
-        self.players = [p for p in self.players if p.id != bot_id]
+        self.players = [p for p in self.players if p is not player]
 
     def join(self, token, name):
         """Join a room: as an active player while it's still in the lobby, or as
@@ -159,9 +171,9 @@ class Game:
         self.spectators.append(spectator)
         return spectator
 
-    def remove_spectator(self, spectator_id):
+    def remove_spectator(self, spectator_public_id):
         before = len(self.spectators)
-        self.spectators = [s for s in self.spectators if s.id != spectator_id]
+        self.spectators = [s for s in self.spectators if s.public_id != spectator_public_id]
         if len(self.spectators) == before:
             raise GameError('Spectator not found.')
 
@@ -509,6 +521,12 @@ class Game:
 
     # -- serialization ------------------------------------------------------
 
+    def _public_id_for(self, token):
+        if not token:
+            return None
+        p = self.get_participant(token)
+        return p.public_id if p else None
+
     def _public_state(self, for_player_id=None):
         now = time.time()
         return {
@@ -521,14 +539,14 @@ class Game:
             'bonusGrid': self.bonus_grid,
             'bagCount': len(self.bag),
             'turnPlayerId': (
-                self.current_player.id if self.status == 'playing' and self.current_player else None
+                self.current_player.public_id if self.status == 'playing' and self.current_player else None
             ),
-            'hostId': self.host_id,
-            'winnerId': self.winner_id,
+            'hostId': self._public_id_for(self.host_id),
+            'winnerId': self._public_id_for(self.winner_id),
             'log': self.log[-50:],
             'players': [
                 {
-                    'id': p.id,
+                    'id': p.public_id,
                     'name': p.name,
                     'score': p.score,
                     'rackCount': len(p.rack),
@@ -545,7 +563,7 @@ class Game:
             'isSpectator': any(s.id == for_player_id for s in self.spectators),
             'spectators': [
                 {
-                    'id': s.id,
+                    'id': s.public_id,
                     'name': s.name,
                     'connected': (now - s.last_seen) < CONNECTED_TIMEOUT_SECONDS,
                 }

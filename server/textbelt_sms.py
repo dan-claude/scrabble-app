@@ -9,8 +9,11 @@ Optional env var:
                    registered for 10DLC.
 """
 
+import hmac
+import hashlib
 import logging
 import os
+import time
 
 import requests as _requests
 
@@ -30,6 +33,25 @@ def _key() -> str:
 
 def is_configured() -> bool:
     return bool(_key())
+
+
+WEBHOOK_MAX_AGE_SECONDS = 15 * 60
+
+
+def verify_webhook(raw_body: bytes, timestamp: str, signature: str, now: float | None = None) -> bool:
+    """Check TextBelt's reply-webhook signature: hex HMAC-SHA256 of
+    timestamp + raw body, keyed with the API key (docs.textbelt.com)."""
+    key = _key()
+    if not key or not timestamp or not signature:
+        return False
+    try:
+        ts = int(timestamp)
+    except ValueError:
+        return False
+    if abs((now if now is not None else time.time()) - ts) > WEBHOOK_MAX_AGE_SECONDS:
+        return False
+    expected = hmac.new(key.encode(), timestamp.encode() + raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature.strip().lower())
 
 
 # ---------------------------------------------------------------------------

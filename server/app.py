@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 from functools import wraps
 from pathlib import Path
 
-from flask import Flask, redirect, request, send_from_directory, session as flask_session, url_for
+from flask import Flask, has_request_context, redirect, request, send_from_directory, session as flask_session, url_for
 from werkzeug.security import safe_join
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -51,8 +51,11 @@ if _restored:
 
 sms_optout.init(rooms.store)
 
-# Last base URL seen in a real request — used when SMS is triggered from a
-# background thread (bot loop) where request context is unavailable.
+# Links in outbound SMS carry a player's secret rejoin token, so their host
+# must not come from client-controlled headers (Host / X-Forwarded-Host).
+# Set PUBLIC_BASE_URL in production; without it we fall back to the request
+# host so local dev keeps working.
+PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
 _last_known_base_url = 'http://localhost:4000/'
 
 
@@ -60,6 +63,14 @@ _last_known_base_url = 'http://localhost:4000/'
 def _capture_base_url():
     global _last_known_base_url
     _last_known_base_url = request.host_url
+
+
+def _base_url():
+    if PUBLIC_BASE_URL:
+        return PUBLIC_BASE_URL + '/'
+    if has_request_context():
+        return request.host_url
+    return _last_known_base_url
 
 # --- simple per-IP rate limit on room creation (defends against a single
 # client flooding room creation to exhaust server memory) ---
@@ -213,7 +224,7 @@ def _body():
 
 def _state_response(game, participant):
     payload = game.state_for(participant.id)
-    payload['youId'] = participant.id
+    payload['youId'] = participant.public_id
     return payload
 
 
@@ -282,7 +293,7 @@ def _maybe_notify_turn(game, previous_turn_player_id, base_url=None):
                 'playerName': player.name,
             })
     last_player = game.get_player(previous_turn_player_id) if previous_turn_player_id else None
-    _maybe_send_sms_turn(game, player, last_player, base_url or _last_known_base_url)
+    _maybe_send_sms_turn(game, player, last_player, base_url or _base_url())
 
 
 def _maybe_send_sms_turn(game, player, last_player, base_url):
@@ -382,13 +393,15 @@ def room_state(code):
 def start_game(code):
     game = _get_room(code)
     player = _get_player(game, _body().get('token'))
+    if player.id != game.host_id:
+        raise ApiError('Only the host can start the game.', 403)
     previous_turn_player_id = _current_turn_player_id(game)
     game.start()
     game.touch()
     rooms.persist(game)
     if game.status == 'finished':
         rooms.record_finished_game(game)
-    _maybe_notify_turn(game, previous_turn_player_id, request.host_url)
+    _maybe_notify_turn(game, previous_turn_player_id, _base_url())
     _maybe_play_bot(game)
     return _state_response(game, player)
 
@@ -405,7 +418,7 @@ def place_tiles(code):
     rooms.persist(game)
     if game.status == 'finished':
         rooms.record_finished_game(game)
-    _maybe_notify_turn(game, previous_turn_player_id, request.host_url)
+    _maybe_notify_turn(game, previous_turn_player_id, _base_url())
     _maybe_play_bot(game)
     return _state_response(game, player)
 
@@ -421,7 +434,7 @@ def pass_turn(code):
     rooms.persist(game)
     if game.status == 'finished':
         rooms.record_finished_game(game)
-    _maybe_notify_turn(game, previous_turn_player_id, request.host_url)
+    _maybe_notify_turn(game, previous_turn_player_id, _base_url())
     _maybe_play_bot(game)
     return _state_response(game, player)
 
@@ -438,7 +451,7 @@ def exchange_tiles(code):
     rooms.persist(game)
     if game.status == 'finished':
         rooms.record_finished_game(game)
-    _maybe_notify_turn(game, previous_turn_player_id, request.host_url)
+    _maybe_notify_turn(game, previous_turn_player_id, _base_url())
     _maybe_play_bot(game)
     return _state_response(game, player)
 
@@ -707,7 +720,7 @@ def update_profile():
             user['phone'] = normalized
             rooms.store.save_user(user['id'], user)
             if is_new_phone:
-                webhook_url = f'{request.host_url.rstrip("/")}/api/sms/webhook'
+                webhook_url = f'{_base_url().rstrip("/")}/api/sms/webhook'
                 textbelt_sms.send(normalized, textbelt_sms.msg_optin_confirmation(), webhook_url)
     phone = user.get('phone')
     return {'phone': phone, 'phoneOptedOut': sms_optout.is_opted_out(phone) if phone else False}
@@ -724,6 +737,14 @@ def sms_webhook():
     TextBelt sends JSON: {"fromNumber": "+15551234567", "text": "STOP", "textId": "..."}
     We respond 200 regardless so TextBelt doesn't retry.
     """
+    if not textbelt_sms.verify_webhook(
+        request.get_data(),
+        request.headers.get('X-textbelt-timestamp', ''),
+        request.headers.get('X-textbelt-signature', ''),
+    ):
+        app.logger.warning('SMS webhook: rejected request with missing/invalid signature')
+        return {'error': 'Invalid signature.'}, 401
+
     data = request.get_json(silent=True) or request.form.to_dict()
     from_number = str(data.get('fromNumber', '')).strip()
     text = str(data.get('text', '')).strip()
@@ -736,7 +757,7 @@ def sms_webhook():
         return {}, 200
 
     keyword = text.upper().strip()
-    webhook_url = f'{request.host_url.rstrip("/")}/api/sms/webhook'
+    webhook_url = f'{_base_url().rstrip("/")}/api/sms/webhook'
 
     if keyword == 'STOP':
         sms_optout.set_opted_out(from_number, True)
@@ -949,7 +970,7 @@ def admin_rejoin_links(code):
     Only meaningful for rooms whose players are still present (lobby or playing);
     spectators are excluded since they have no persistent game seat to return to."""
     game = _get_room(code)
-    base = request.host_url.rstrip('/')
+    base = _base_url().rstrip('/')
     players = [
         {
             'name': p.name,

@@ -175,7 +175,7 @@ def test_pass_advances_turn(client):
     r = client.post(f'/api/rooms/{code}/pass', json={'token': t0})
     assert r.status_code == 200
     state = r.get_json()
-    assert state['turnPlayerId'] == t1
+    assert state['turnPlayerId'] == _state(client, code, t1)['youId']
 
 def test_pass_wrong_turn(client):
     code, t0, t1 = _started_game(client)
@@ -246,3 +246,87 @@ def test_notification_plugins_endpoint(client):
     r = client.get('/api/notification-plugins')
     assert r.status_code == 200
     assert 'plugins' in r.get_json()
+
+
+# ---------------------------------------------------------------------------
+# security: secret tokens stay private
+# ---------------------------------------------------------------------------
+
+def test_state_does_not_leak_other_tokens(client):
+    code, t0, t1 = _started_game(client)
+    spec = client.post(f'/api/rooms/{code}/join', json={'playerName': 'Spec'}).get_json()
+    body = repr(spec)
+    assert t0 not in body and t1 not in body
+    assert spec['token'] in body  # the caller still gets its own token back
+
+def test_youid_matches_own_player_entry(client):
+    code, t0, t1 = _started_game(client)
+    state = _state(client, code, t1)
+    me = next(p for p in state['players'] if p['id'] == state['youId'])
+    assert me['name'] == 'Bob'
+    assert me['rack'] is not None
+
+def test_non_host_cannot_start(client):
+    created = _create(client)
+    code = created['roomCode']
+    t1 = _join(client, code, 'Bob')['token']
+    r = client.post(f'/api/rooms/{code}/start', json={'token': t1})
+    assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# security: SMS webhook signature
+# ---------------------------------------------------------------------------
+
+import hashlib
+import hmac as _hmac
+import json
+import time as _time
+
+import sms_optout
+
+
+def _signed_post(client, key, payload, ts=None, sig=None):
+    raw = json.dumps(payload).encode()
+    ts = str(int(_time.time())) if ts is None else ts
+    if sig is None:
+        sig = _hmac.new(key.encode(), ts.encode() + raw, hashlib.sha256).hexdigest()
+    return client.post('/api/sms/webhook', data=raw, content_type='application/json',
+                       headers={'X-textbelt-timestamp': ts, 'X-textbelt-signature': sig})
+
+
+def test_webhook_rejects_unsigned(client, monkeypatch):
+    monkeypatch.setenv('TEXTBELT_KEY', 'k')
+    r = client.post('/api/sms/webhook', json={'fromNumber': '+15551230001', 'text': 'STOP'})
+    assert r.status_code == 401
+    assert not sms_optout.is_opted_out('+15551230001')
+
+def test_webhook_rejects_bad_signature(client, monkeypatch):
+    monkeypatch.setenv('TEXTBELT_KEY', 'k')
+    r = _signed_post(client, 'k', {'fromNumber': '+15551230002', 'text': 'STOP'}, sig='0' * 64)
+    assert r.status_code == 401
+    assert not sms_optout.is_opted_out('+15551230002')
+
+def test_webhook_rejects_stale_timestamp(client, monkeypatch):
+    monkeypatch.setenv('TEXTBELT_KEY', 'k')
+    old = str(int(_time.time()) - 3600)
+    r = _signed_post(client, 'k', {'fromNumber': '+15551230003', 'text': 'STOP'}, ts=old)
+    assert r.status_code == 401
+
+def test_webhook_accepts_valid_signature(client, monkeypatch):
+    monkeypatch.setenv('TEXTBELT_KEY', 'k')
+    import textbelt_sms
+    monkeypatch.setattr(textbelt_sms, 'send', lambda *a, **kw: True)
+    r = _signed_post(client, 'k', {'fromNumber': '+15551230004', 'text': 'STOP'})
+    assert r.status_code == 200
+    assert sms_optout.is_opted_out('+15551230004')
+
+
+# ---------------------------------------------------------------------------
+# security: SMS links use PUBLIC_BASE_URL, not request headers
+# ---------------------------------------------------------------------------
+
+def test_base_url_ignores_forwarded_host_when_configured(client, monkeypatch):
+    monkeypatch.setattr(app_module, 'PUBLIC_BASE_URL', 'https://play.example')
+    with app_module.app.test_request_context('/', headers={'X-Forwarded-Host': 'evil.example'}):
+        assert app_module._base_url() == 'https://play.example/'

@@ -184,7 +184,7 @@ Remove a bot player from a room that is still in the lobby. Host only.
 
 **Body**
 ```ts
-{ token: string; botId: string }
+{ token: string; botId: string }   // botId = the bot's PlayerView.id (public id)
 ```
 
 **Response** `200 OK` — a `State` object.
@@ -199,7 +199,7 @@ Remove a spectator from the room. Host only.
 
 **Body**
 ```ts
-{ token: string; spectatorId: string }
+{ token: string; spectatorId: string }   // spectatorId = SpectatorView.id (public id)
 ```
 
 **Response** `200 OK` — a `State` object.
@@ -257,9 +257,7 @@ still there.
 
 ### `POST /api/rooms/<code>/start`
 
-Deal racks and start the game. Any player can call it (the client only shows the button
-to the host, but the server does not enforce that — see note in
-[Known limitations](#known-limitations)).
+Deal racks and start the game. Host only.
 
 **Body**
 ```ts
@@ -270,7 +268,8 @@ to the host, but the server does not enforce that — see note in
 
 **Errors:** `404` `"Room not found."` · `401` `"Missing token."` / `"Session not found;
 please join again."` · `403` `"Spectators can't do that."` (a spectator's token was used) ·
-`400` `"Game already started."` · `400` `"Need at least 2 players to start."`
+`403` `"Only the host can start the game."` · `400` `"Game already started."` ·
+`400` `"Need at least 2 players to start."`
 
 ---
 
@@ -375,16 +374,21 @@ Every room/gameplay endpoint above returns this same shape (personalized per pla
   board: (BoardCell | null)[][];       // 15x15, board[row][col]
   bonusGrid: (BonusLabel | null)[][];  // 15x15, static for the whole game
   bagCount: number;                    // tiles remaining, undrawn
-  turnPlayerId: string | null;         // a player id (token); null unless status=="playing"
-  hostId: string;                      // id of the player who created the room
-  winnerId: string | null;             // set once status=="finished"
+  turnPlayerId: string | null;         // a player's public id; null unless status=="playing"
+  hostId: string;                      // public id of the player who created the room
+  winnerId: string | null;             // public id; set once status=="finished"
   log: LogEntry[];                     // most recent 50 events, oldest first
   players: PlayerView[];
   isSpectator: boolean;                // true if youId belongs to a spectator, not a player
   spectators: SpectatorView[];
-  youId: string;                       // which player/spectator this particular response is for
+  youId: string;                       // public id of the player/spectator this response is for
   token?: string;                      // only present on POST /api/rooms and .../join
 }
+
+All ids in `State` (`PlayerView.id`, `SpectatorView.id`, `turnPlayerId`, `hostId`,
+`winnerId`, `youId`) are **public ids**, safe to show to everyone in the room. They are
+*not* the secret `token` used to authenticate requests, and the server never sends one
+participant's token to another.
 
 type BoardCell = { letter: string; isBlank: boolean };
 type BonusLabel = "TW" | "DW" | "TL" | "DL";
@@ -651,14 +655,22 @@ If the number is in the opt-out table the response includes `"error"` and no cha
 Receives reply SMS from TextBelt when a player responds to a notification.
 TextBelt posts JSON `{ fromNumber, text, textId }`.
 
+Requests must carry TextBelt's signature headers: `X-textbelt-timestamp` (UNIX seconds)
+and `X-textbelt-signature` (hex HMAC-SHA256 of the timestamp string followed by the raw
+request body, keyed with `TEXTBELT_KEY`). Requests with a missing or wrong signature, or a
+timestamp more than 15 minutes from the server clock, get `401 {"error": "Invalid signature."}`
+and change nothing.
+
 - `STOP` → marks the number as opted out in the persistent opt-out table; sends confirmation.
 - `START` → clears the opt-out; sends re-subscribe confirmation.
 - `HELP` → sends the help message.
 - Anything else → logged and ignored.
 
-Always returns `200 {}`. Every event is logged to stdout (visible in Railway logs).
+Returns `200 {}` for any correctly signed request. Every event is logged to stdout
+(visible in Railway logs).
 
-**No authentication required** — this endpoint is called by TextBelt's servers.
+No user authentication — this endpoint is called by TextBelt's servers and is
+authenticated by the signature above.
 
 ---
 
@@ -868,13 +880,11 @@ plugin needs to read it back, and the join/in-room forms don't pre-fill it eithe
 | `ADMIN_TOKEN` | *(unset)* | Enables `/api/admin/*` — see [Admin API](#admin-api). Generate one with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 | `GOOGLE_CLIENT_ID` | *(unset)* | Google OAuth client ID — from Google Cloud Console. OAuth routes return `503` if unset. |
 | `GOOGLE_CLIENT_SECRET` | *(unset)* | Google OAuth client secret — from Google Cloud Console. |
+| `PUBLIC_BASE_URL` | *(unset)* | Public origin of the app, e.g. `https://yourapp.up.railway.app`. Used to build links in SMS (which carry the player's rejoin token) and admin rejoin links. **Set this in production**: if unset, links are built from the request's Host / X-Forwarded-Host header, which a client can forge. |
 | `SECRET_KEY` | *(random per restart)* | Signs Flask session cookies used by the OAuth state check. Set a stable value in production so in-flight logins survive restarts. Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 
 ## Known limitations
 
-- `POST .../start` does not check that the caller is the host — the reference client
-  only shows the "Start game" button to the host, but any player in the lobby could call
-  it directly. Not a concern for a casual game among friends holding the same room code.
 - State is in-memory by default; restarting the server drops all rooms and games in
   progress unless `PERSISTENCE_BACKEND` is set (see above).
 - Polling means state updates lag by up to one poll interval (~1s in the reference

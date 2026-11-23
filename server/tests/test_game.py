@@ -79,8 +79,8 @@ class TestLobby:
         g.add_player('t1', 'Alice')
         g.add_player('t2', 'Bob')
         g.start()
-        g.join('spec', 'Watcher')
-        g.remove_spectator('spec')
+        spec = g.join('spec', 'Watcher')
+        g.remove_spectator(spec.public_id)
         assert len(g.spectators) == 0
 
     def test_remove_missing_spectator_raises(self):
@@ -107,9 +107,39 @@ class TestLobby:
     def test_remove_bot(self):
         g = Game('X')
         g.add_player('host', 'Host')
-        g.add_bot('bot1', 'Bot', difficulty='easy')
-        g.remove_bot('bot1')
+        bot = g.add_bot('bot1', 'Bot', difficulty='easy')
+        g.remove_bot(bot.public_id)
         assert len(g.players) == 1
+
+    def test_remove_bot_rejects_secret_token(self):
+        g = Game('X')
+        g.add_player('host', 'Host')
+        g.add_bot('bot1', 'Bot')
+        with pytest.raises(GameError, match='not found'):
+            g.remove_bot('bot1')
+
+    def test_public_state_never_contains_tokens(self):
+        g, tokens = _make_game(2)
+        g.join('spec-secret', 'Watcher')
+        blob = repr(g.state_for(None))
+        for t in tokens + ['spec-secret']:
+            assert t not in blob
+
+    def test_public_id_survives_round_trip(self):
+        g, tokens = _make_game(2)
+        before = g.state_for(tokens[0])
+        restored = Game.from_dict(g.to_dict())
+        assert restored.state_for(tokens[0])['players'] == before['players']
+
+    def test_old_save_without_public_id_loads(self):
+        g, tokens = _make_game(2)
+        data = g.to_dict()
+        for p in data['players']:
+            p.pop('public_id')
+        restored = Game.from_dict(data)
+        assert restored.get_player(tokens[0]) is not None
+        assert all(p.public_id for p in restored.players)
+        assert restored.state_for(None)['hostId'] == restored.players[0].public_id
 
 
 # ---------------------------------------------------------------------------
