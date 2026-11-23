@@ -327,9 +327,22 @@ def test_webhook_accepts_valid_signature(client, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_base_url_ignores_forwarded_host_when_configured(client, monkeypatch):
-    monkeypatch.setattr(app_module, 'PUBLIC_BASE_URL', 'https://play.example')
+    from public_url import PublicUrl
+    monkeypatch.setattr(app_module, 'public_url', PublicUrl({'PUBLIC_BASE_URL': 'https://play.example'}))
     with app_module.app.test_request_context('/', headers={'X-Forwarded-Host': 'evil.example'}):
         assert app_module._base_url() == 'https://play.example/'
+
+def test_admin_public_url_reports_unrecognized_host(client, monkeypatch):
+    from public_url import PublicUrl
+    monkeypatch.setattr(app_module, 'ADMIN_TOKEN', 'admintok')
+    monkeypatch.setattr(app_module, 'public_url', PublicUrl({'PUBLIC_HOSTS': 'play.example'}))
+    client.get('/api/dictionaries', headers={'Host': 'new.example'})
+    r = client.get('/api/admin/public-url', headers={'Authorization': 'Bearer admintok', 'Host': 'play.example'})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['linkBaseUrl'] == 'https://play.example'
+    assert body['requestHostRecognized'] is True
+    assert body['unrecognizedHosts'] == ['new.example']
 
 
 def test_turn_sms_link_has_no_token(client, monkeypatch):

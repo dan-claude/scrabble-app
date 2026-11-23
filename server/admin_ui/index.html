@@ -65,6 +65,11 @@
   .rejoin-url { font-family: monospace; font-size: 11px; color: #555; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .copy-btn { flex-shrink: 0; padding: 3px 10px; font-size: 12px; background: #4f5df0; }
   .copy-btn.copied { background: #2ecc71; }
+  .url-banner { font-size: 13px; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; line-height: 1.5; }
+  .url-banner.ok { background: #eef6f1; color: #2f5d43; }
+  .url-banner.warn { background: #fff3cd; color: #6b4e00; border: 1px solid #f0d78c; }
+  .url-banner p { margin: 0; }
+  .url-banner p + p { margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -78,6 +83,7 @@
 </header>
 <main>
   <div class="status" id="status">Enter your admin token above to connect.</div>
+  <div class="url-banner" id="urlBanner" hidden></div>
 
   <section id="roomsSection" hidden>
     <h2>
@@ -284,14 +290,39 @@ function renderSmsOptouts(numbers) {
   }
 }
 
+function renderPublicUrl(info) {
+  const banner = el('urlBanner');
+  const code = (s) => `<code>${escapeHtml(s)}</code>`;
+  const others = info.unrecognizedHosts.filter((h) => h !== info.requestHost);
+  const lines = [];
+  let warn = false;
+  if (!info.linkBaseUrl) {
+    warn = true;
+    lines.push(`No public address is configured, so links in texts use whatever host each request arrives on (which a client can fake). Set ${code('PUBLIC_BASE_URL')} or ${code('PUBLIC_HOSTS')}.`);
+  } else if (!info.requestHostRecognized) {
+    warn = true;
+    lines.push(`You're visiting ${code(info.requestHost)}, but links in texts point to ${code(info.linkBaseUrl)} (from ${code(info.source)}). If ${code(info.requestHost)} is your domain, add it to ${code('PUBLIC_HOSTS')} or update ${code('PUBLIC_BASE_URL')}.`);
+  } else {
+    lines.push(`Links in texts use ${code(info.linkBaseUrl)} (from ${code(info.source)}). Recognized hosts: ${info.allowedHosts.map(code).join(', ')}.`);
+  }
+  if (others.length) {
+    warn = true;
+    lines.push(`Requests have also arrived on unrecognized hosts since the server started: ${others.map(code).join(', ')}. Add any that are yours to ${code('PUBLIC_HOSTS')}; others may be forged headers.`);
+  }
+  banner.className = `url-banner ${warn ? 'warn' : 'ok'}`;
+  banner.innerHTML = lines.map((l) => `<p>${l}</p>`).join('');
+  banner.hidden = false;
+}
+
 async function loadAll() {
   try {
-    const [roomsBody, gamesBody, paramsBody, pluginsBody, smsBody] = await Promise.all([
+    const [roomsBody, gamesBody, paramsBody, pluginsBody, smsBody, urlBody] = await Promise.all([
       api('/api/admin/rooms'),
       api('/api/admin/games?limit=200'),
       api('/api/admin/params'),
       api('/api/notification-plugins'),
       api('/api/admin/sms-optouts'),
+      api('/api/admin/public-url'),
     ]);
     el('roomsSection').hidden = false;
     el('gamesSection').hidden = false;
@@ -303,6 +334,7 @@ async function loadAll() {
     renderParams(paramsBody.params);
     renderPlugins(pluginsBody.plugins);
     renderSmsOptouts(smsBody.numbers);
+    renderPublicUrl(urlBody);
     setStatus(`Connected. Last updated ${new Date().toLocaleTimeString()}.`);
     el('disconnectBtn').hidden = false;
     sessionStorage.setItem('scrabble_admin_token', token);
@@ -313,6 +345,7 @@ async function loadAll() {
     el('paramsSection').hidden = true;
     el('pluginsSection').hidden = true;
     el('smsSection').hidden = true;
+    el('urlBanner').hidden = true;
     el('disconnectBtn').hidden = true;
     if (err.status === 404) {
       setStatus('Invalid token, or the admin API is not enabled on this server (ADMIN_TOKEN not set).', true);
@@ -404,6 +437,7 @@ el('disconnectBtn').addEventListener('click', () => {
   el('paramsSection').hidden = true;
   el('pluginsSection').hidden = true;
   el('smsSection').hidden = true;
+  el('urlBanner').hidden = true;
   el('disconnectBtn').hidden = true;
   el('tokenInput').value = '';
   setStatus('Disconnected.');

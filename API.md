@@ -642,7 +642,7 @@ Update the signed-in user's profile. Currently only `phone` is writable.
 
 When `phone` is new (not previously saved), an opt-in confirmation SMS is sent immediately.
 
-Turn-notification texts link to `<PUBLIC_BASE_URL>/?room=CODE&resume=1`. The link carries
+Turn-notification texts link to `<public address>/?room=CODE&resume=1` (see `PUBLIC_BASE_URL` in [Environment variables](#environment-variables)). The link carries
 no token. The client resumes the seat from the device's saved session for that room, or
 else from the signed-in account via `GET /api/auth/active-games`; if nobody is signed in
 it shows a "Game in progress — sign in" page using the same sign-in options as everywhere
@@ -819,6 +819,24 @@ credentials are redacted to `***:***` - only the host/port/db portion is real.
 }
 ```
 
+### `GET /api/admin/public-url`
+
+Which address outbound links use, and any hosts requests have arrived on that aren't
+configured (see `PUBLIC_BASE_URL` / `PUBLIC_HOSTS` / `RAILWAY_PUBLIC_DOMAIN` in
+[Environment variables](#environment-variables)). The admin page shows this as a banner.
+
+**Response** `200 OK`
+```ts
+{
+  linkBaseUrl: string | null;      // default origin for links; null if nothing configured
+  source: "PUBLIC_BASE_URL" | "PUBLIC_HOSTS" | "RAILWAY_PUBLIC_DOMAIN" | null;
+  allowedHosts: string[];          // hosts whose requests may use their own host in links
+  requestHost: string;             // host this admin request arrived on
+  requestHostRecognized: boolean;
+  unrecognizedHosts: string[];     // since server start, max 20; may include forged headers
+}
+```
+
 ### `GET /api/admin/sms-optouts`
 
 The full SMS opt-out table — every phone number that has ever sent a STOP or START reply, with its current status. Only numbers that have interacted with the webhook appear here; numbers that received messages but never replied are absent.
@@ -886,7 +904,14 @@ plugin needs to read it back, and the join/in-room forms don't pre-fill it eithe
 | `ADMIN_TOKEN` | *(unset)* | Enables `/api/admin/*` — see [Admin API](#admin-api). Generate one with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 | `GOOGLE_CLIENT_ID` | *(unset)* | Google OAuth client ID — from Google Cloud Console. OAuth routes return `503` if unset. |
 | `GOOGLE_CLIENT_SECRET` | *(unset)* | Google OAuth client secret — from Google Cloud Console. |
-| `PUBLIC_BASE_URL` | *(unset)* | Public origin of the app, e.g. `https://yourapp.up.railway.app`. Used to build links in SMS and admin rejoin links (admin links carry the player's token). **Set this in production**: if unset, links are built from the request's Host / X-Forwarded-Host header, which a client can forge. |
+| `PUBLIC_BASE_URL` | *(unset)* | Public origin of the app, e.g. `https://play.example.com` (trailing slash optional). Highest-priority source for the address used in outbound links: turn SMS, the TextBelt reply webhook URL, and admin rejoin links. |
+| `PUBLIC_HOSTS` | *(unset)* | Comma-separated hostnames that are yours, e.g. `play.example.com,yourapp.up.railway.app`. A request arriving on one of these builds links with that host (`https://`); otherwise links use the default. The first entry is the default when `PUBLIC_BASE_URL` is unset. |
+| `RAILWAY_PUBLIC_DOMAIN` | *(set by Railway)* | Railway sets this automatically. Used as the default when neither of the above is set, and always treated as one of your hosts. It can lag behind a custom-domain change, so prefer setting one of the above. |
+
+If none of the three is set (local dev), links use the request's Host header, which a
+client can forge. Otherwise the request's host is only used when it's one of the hosts
+above. A request on any other host is logged once as a warning and listed by
+`GET /api/admin/public-url`, so a new domain you forgot to add gets noticed.
 | `SECRET_KEY` | *(random per restart)* | Signs Flask session cookies used by the OAuth state check. Set a stable value in production so in-flight logins survive restarts. Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 
 ## Known limitations

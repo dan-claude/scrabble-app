@@ -13,6 +13,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import auth
 import sms_optout
 import textbelt_sms
+from public_url import PublicUrl
 from game.dictionary import available_dictionaries, default_dictionary
 from game.game import (
     BINGO_BONUS,
@@ -51,25 +52,27 @@ if _restored:
 
 sms_optout.init(rooms.store)
 
-# Links in outbound SMS carry a player's secret rejoin token, so their host
-# must not come from client-controlled headers (Host / X-Forwarded-Host).
-# Set PUBLIC_BASE_URL in production; without it we fall back to the request
-# host so local dev keeps working.
-PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
+# See public_url.py. With nothing configured (local dev) links fall back to
+# the request host.
+public_url = PublicUrl(os.environ)
 _last_known_base_url = 'http://localhost:4000/'
 
 
 @app.before_request
 def _capture_base_url():
     global _last_known_base_url
-    _last_known_base_url = request.host_url
+    if request.path != '/api/health':
+        public_url.note_request_host(request.host)
+    if not public_url.configured:
+        _last_known_base_url = request.host_url
 
 
 def _base_url():
-    if PUBLIC_BASE_URL:
-        return PUBLIC_BASE_URL + '/'
     if has_request_context():
-        return request.host_url
+        configured = public_url.url_for_request_host(request.host)
+        return configured + '/' if configured else request.host_url
+    if public_url.configured:
+        return public_url.default_url + '/'
     return _last_known_base_url
 
 # --- simple per-IP rate limit on room creation (defends against a single
@@ -1063,6 +1066,13 @@ def _admin_params():
 @require_admin
 def admin_params():
     return _admin_params()
+
+
+@app.get('/api/admin/public-url')
+@api_route
+@require_admin
+def admin_public_url():
+    return public_url.admin_summary(request.host)
 
 
 @app.get('/api/admin/sms-optouts')
