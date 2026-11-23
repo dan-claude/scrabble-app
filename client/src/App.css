@@ -1072,6 +1072,46 @@
 .controls button:nth-of-type(4) { background: #b07a2f; }
 .controls button:nth-of-type(5) { background: #c0392b; }
 
+.score-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  justify-content: center;
+  margin-bottom: 2px;
+}
+
+.score-pill {
+  display: inline-flex;
+  align-items: center;
+  background: #1a7a4a;
+  color: #fff;
+  border-radius: 20px;
+  padding: 3px 11px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.word-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #fff;
+  font-weight: 500;
+}
+
+.word-chip-score {
+  color: rgba(255,255,255,0.65);
+  font-size: 11px;
+}
+
 .game-over {
   background: #fff;
   padding: 1.5rem;

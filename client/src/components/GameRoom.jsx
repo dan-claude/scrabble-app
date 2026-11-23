@@ -12,6 +12,7 @@ import {
 } from '../api';
 import useBrowserNotifications from '../hooks/useBrowserNotifications';
 import { cellFromRect, pointInRect, clientToFixed, BOARD_PADDING_PX } from '../dragUtils';
+import { computeScorePreview } from '../scorePreview';
 import Board from './Board';
 import Rack from './Rack';
 import ScoreBoard from './ScoreBoard';
@@ -72,6 +73,12 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
   }, [pending]);
 
   const availableRack = rackTiles.filter((t) => !pending.some((p) => p.uid === t.uid));
+
+  const scorePreview = useMemo(
+    () => computeScorePreview(state?.board, state?.bonusGrid, pending),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pending, state?.board, state?.bonusGrid]
+  );
 
   function selectRackTile(uid) {
     if (justDraggedRef.current) return;
@@ -573,6 +580,18 @@ export default function GameRoom({ state, session, onLeave, onStateUpdate, userT
                       </>
                     ) : (
                       <>
+                        {scorePreview && (
+                          <div className="score-preview">
+                            <span className="score-pill">
+                              {scorePreview.total} pts{scorePreview.isBingo ? ' 🎉' : ''}
+                            </span>
+                            {scorePreview.words.map((w, i) => (
+                              <span key={i} className="word-chip">
+                                {w.text} <span className="word-chip-score">{w.score}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         <button onClick={submitMove} disabled={busy || pending.length === 0}>
                           Submit word
                         </button>
