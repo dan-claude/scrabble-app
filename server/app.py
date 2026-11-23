@@ -318,7 +318,9 @@ def _maybe_send_sms_turn(game, player, last_player, base_url):
                         game.room_code, player.name)
         return
     base = base_url.rstrip('/')
-    room_url = f'{base}/?room={game.room_code}&rejoin_token={player.id}'
+    # No secret in the link: the client finds the seat via the signed-in
+    # account (SMS only goes to signed-in players), or asks them to sign in.
+    room_url = f'{base}/?room={game.room_code}&resume=1'
     webhook_url = f'{base}/api/sms/webhook'
     message = textbelt_sms.msg_turn_notification(room_url, last_player.name)
     app.logger.info('SMS turn notify: room=%s player=%s phone=%s',

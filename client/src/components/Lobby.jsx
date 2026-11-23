@@ -63,9 +63,10 @@ export default function Lobby({ onEntered, userToken }) {
     const params = new URLSearchParams(window.location.search);
     const invited = params.get('room');
     if (!invited) return;
-    // Admin rejoin links carry ?room=CODE&rejoin_token=TOKEN — App.jsx handles
-    // those directly using the existing token, so don't also trigger a new join here.
-    if (params.get('rejoin_token')) return;
+    // Admin rejoin links (?room=CODE&rejoin_token=TOKEN) and turn-notification
+    // links (?room=CODE&resume=1) are handled by App.jsx, which puts the player
+    // back in their existing seat, so don't also trigger a new join here.
+    if (params.get('rejoin_token') || params.get('resume')) return;
     const code = invited.toUpperCase().slice(0, 5);
     setMode('join');
     setRoomCode(code);

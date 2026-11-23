@@ -641,6 +641,12 @@ Update the signed-in user's profile. Currently only `phone` is writable.
 ```
 
 When `phone` is new (not previously saved), an opt-in confirmation SMS is sent immediately.
+
+Turn-notification texts link to `<PUBLIC_BASE_URL>/?room=CODE&resume=1`. The link carries
+no token. The client resumes the seat from the device's saved session for that room, or
+else from the signed-in account via `GET /api/auth/active-games`; if nobody is signed in
+it shows a "Game in progress — sign in" page using the same sign-in options as everywhere
+else in the app.
 If the number is in the opt-out table the response includes `"error"` and no change is saved:
 ```ts
 { phone: string | null; phoneOptedOut: true; error: string; }
@@ -880,7 +886,7 @@ plugin needs to read it back, and the join/in-room forms don't pre-fill it eithe
 | `ADMIN_TOKEN` | *(unset)* | Enables `/api/admin/*` — see [Admin API](#admin-api). Generate one with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 | `GOOGLE_CLIENT_ID` | *(unset)* | Google OAuth client ID — from Google Cloud Console. OAuth routes return `503` if unset. |
 | `GOOGLE_CLIENT_SECRET` | *(unset)* | Google OAuth client secret — from Google Cloud Console. |
-| `PUBLIC_BASE_URL` | *(unset)* | Public origin of the app, e.g. `https://yourapp.up.railway.app`. Used to build links in SMS (which carry the player's rejoin token) and admin rejoin links. **Set this in production**: if unset, links are built from the request's Host / X-Forwarded-Host header, which a client can forge. |
+| `PUBLIC_BASE_URL` | *(unset)* | Public origin of the app, e.g. `https://yourapp.up.railway.app`. Used to build links in SMS and admin rejoin links (admin links carry the player's token). **Set this in production**: if unset, links are built from the request's Host / X-Forwarded-Host header, which a client can forge. |
 | `SECRET_KEY` | *(random per restart)* | Signs Flask session cookies used by the OAuth state check. Set a stable value in production so in-flight logins survive restarts. Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 
 ## Known limitations

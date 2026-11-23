@@ -1,13 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
-import { clearSession, fetchState, getMe, linkUser, loadSession, loadUserToken, saveSession, saveUserToken } from './api';
+import { clearSession, fetchState, getActiveGames, getMe, linkUser, loadSession, loadUserToken, saveSession, saveUserToken } from './api';
 import AuthButton from './components/AuthButton';
 import GameRoom from './components/GameRoom';
 import Lobby from './components/Lobby';
 import ProfilePage from './components/ProfilePage';
+import ResumeGate from './components/ResumeGate';
 import SignInModal from './components/SignInModal';
 import './App.css';
 
 const POLL_INTERVAL_MS = 1000;
+// Survives the full-page OAuth redirect (used when the popup is blocked), so
+// a turn-notification link still resumes the game after sign-in.
+const PENDING_RESUME_KEY = 'pending_resume_room';
+
+function loadPendingResume() {
+  try { return sessionStorage.getItem(PENDING_RESUME_KEY); } catch { return null; }
+}
+
+function savePendingResume(code) {
+  try {
+    if (code) sessionStorage.setItem(PENDING_RESUME_KEY, code);
+    else sessionStorage.removeItem(PENDING_RESUME_KEY);
+  } catch {}
+}
 
 
 function smsNudgeKey(userId) {
@@ -32,6 +47,7 @@ function App() {
   const [showSignIn, setShowSignIn] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showSmsNudge, setShowSmsNudge] = useState(false);
+  const [resume, setResume] = useState(null); // { code, status: 'loading'|'signin'|'not-found' }
   const pollTimerRef = useRef(null);
 
   // Load auth session and handle OAuth callback (?user_token=TOKEN).
@@ -58,11 +74,71 @@ function App() {
     }
   }, []);
 
+  function enterRoom(newSession, payload) {
+    saveSession(newSession);
+    savePendingResume(null);
+    setResume(null);
+    setSession(newSession);
+    setState(payload);
+  }
+
+  async function resumeFromAccount(code, uToken) {
+    setResume({ code, status: 'loading' });
+    try {
+      const data = await getActiveGames(uToken);
+      const game = (data.games || []).find((g) => g.roomCode === code);
+      if (!game) {
+        savePendingResume(null);
+        setResume({ code, status: 'not-found' });
+        return;
+      }
+      const newSession = { roomCode: code, token: game.token };
+      enterRoom(newSession, await fetchState(code, game.token));
+    } catch {
+      savePendingResume(null);
+      setResume({ code, status: 'not-found' });
+    }
+  }
+
+  async function startResume(code) {
+    const saved = loadSession();
+    if (saved?.roomCode === code) {
+      try {
+        enterRoom(saved, await fetchState(saved.roomCode, saved.token));
+        return;
+      } catch {}
+    }
+    const uToken = loadUserToken();
+    if (uToken) {
+      resumeFromAccount(code, uToken);
+    } else {
+      savePendingResume(code);
+      setResume({ code, status: 'signin' });
+    }
+  }
+
+  function goToLobbyFromResume() {
+    savePendingResume(null);
+    setResume(null);
+  }
+
   // On first load, try to resume a saved room session.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const linkRoom = params.get('room');
     const linkToken = params.get('rejoin_token');
+
+    // Turn-notification links carry no secret: ?room=CODE&resume=1. The seat
+    // is found via this device's saved session or the signed-in account.
+    const resumeCode = linkRoom && params.get('resume')
+      ? linkRoom.toUpperCase().slice(0, 5)
+      : loadPendingResume();
+    if (resumeCode) {
+      if (linkRoom) window.history.replaceState({}, '', window.location.pathname);
+      startResume(resumeCode);
+      return;
+    }
+
     if (linkRoom && linkToken) {
       window.history.replaceState({}, '', window.location.pathname);
       const session = { roomCode: linkRoom.toUpperCase().slice(0, 5), token: linkToken };
@@ -146,6 +222,10 @@ function App() {
       const data = await getMe(newUserToken);
       setUser(data.user);
       setShowSmsNudge(shouldShowSmsNudge(data.user));
+      if (resume) {
+        resumeFromAccount(resume.code, newUserToken);
+        return;
+      }
       // If we're currently in a room, stamp user_id on the existing player slot
       // so this game counts in their history even though they signed in mid-game.
       if (session) {
@@ -202,6 +282,21 @@ function App() {
           smsEnabled={user?.smsEnabled ?? false}
           onBack={() => setShowProfile(false)}
           onLogout={handleLogout}
+        />
+      </div>
+    );
+  }
+
+  if (resume && !session) {
+    return (
+      <div className="app-shell">
+        {header}
+        {showSignIn && <SignInModal onClose={() => setShowSignIn(false)} onSuccess={handleAuthSuccess} />}
+        <ResumeGate
+          roomCode={resume.code}
+          status={resume.status}
+          onSignIn={handleAuthSuccess}
+          onGoToLobby={goToLobbyFromResume}
         />
       </div>
     );

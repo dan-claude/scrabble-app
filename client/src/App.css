@@ -160,6 +160,33 @@
   text-align: center;
 }
 
+.resume-gate {
+  display: flex;
+  justify-content: center;
+  padding: 2rem 16px;
+}
+
+.resume-gate-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 2rem;
+  width: 100%;
+  max-width: 340px;
+  box-sizing: border-box;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.resume-gate-lobby {
+  display: block;
+  margin: 1.25rem auto 0;
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* Profile page */
 .profile-page {
   max-width: 640px;

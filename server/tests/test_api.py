@@ -330,3 +330,19 @@ def test_base_url_ignores_forwarded_host_when_configured(client, monkeypatch):
     monkeypatch.setattr(app_module, 'PUBLIC_BASE_URL', 'https://play.example')
     with app_module.app.test_request_context('/', headers={'X-Forwarded-Host': 'evil.example'}):
         assert app_module._base_url() == 'https://play.example/'
+
+
+def test_turn_sms_link_has_no_token(client, monkeypatch):
+    code, t0, t1 = _started_game(client)
+    game = app_module.rooms.get_room(code)
+    nxt = game.get_player(t1)
+    nxt.user_id = 'u1'
+    monkeypatch.setattr(app_module.rooms.store, 'get_user', lambda uid: {'id': uid, 'phone': '+15551239999'})
+    monkeypatch.setattr(app_module.sms_optout, 'is_opted_out', lambda phone: False)
+    sent = []
+    monkeypatch.setattr(app_module.textbelt_sms, 'send', lambda phone, msg, *a, **kw: sent.append(msg))
+    r = client.post(f'/api/rooms/{code}/pass', json={'token': t0})
+    assert r.status_code == 200
+    assert len(sent) == 1
+    assert f'room={code}&resume=1' in sent[0]
+    assert t1 not in sent[0] and t0 not in sent[0]
