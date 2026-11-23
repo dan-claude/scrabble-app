@@ -45,10 +45,11 @@ def msg_optin_confirmation() -> str:
     )
 
 
-def msg_turn_notification(room_url: str) -> str:
+def msg_turn_notification(room_url: str, last_player_name: str = '') -> str:
     b = _brand()
+    prefix = f'{last_player_name} just went, it\'s' if last_player_name else 'It\'s'
     return (
-        f'[{b}] It\'s your turn! '
+        f'[{b}] {prefix} your turn! '
         f'Play here: {room_url} — Reply STOP to opt out.'
     )
 

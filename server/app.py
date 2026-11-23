@@ -281,11 +281,19 @@ def _maybe_notify_turn(game, previous_turn_player_id, base_url=None):
                 'playerId': player.id,
                 'playerName': player.name,
             })
-    _maybe_send_sms_turn(game, player, base_url or _last_known_base_url)
+    last_player = game.get_player(previous_turn_player_id) if previous_turn_player_id else None
+    _maybe_send_sms_turn(game, player, last_player, base_url or _last_known_base_url)
 
 
-def _maybe_send_sms_turn(game, player, base_url):
-    """Send a turn-notification SMS if the player has a registered phone."""
+def _maybe_send_sms_turn(game, player, last_player, base_url):
+    """Send a turn-notification SMS if the player has a registered phone.
+
+    last_player is None at game start — in that case we skip the notification
+    so the player who goes first doesn't get a redundant 'it's your turn' SMS
+    before they've even seen the board.
+    """
+    if last_player is None:
+        return
     if not player.user_id:
         return
     user = rooms.store.get_user(player.user_id) or auth._mem_users.get(player.user_id)
@@ -301,7 +309,7 @@ def _maybe_send_sms_turn(game, player, base_url):
     base = base_url.rstrip('/')
     room_url = f'{base}/?room={game.room_code}&rejoin_token={player.id}'
     webhook_url = f'{base}/api/sms/webhook'
-    message = textbelt_sms.msg_turn_notification(room_url)
+    message = textbelt_sms.msg_turn_notification(room_url, last_player.name)
     app.logger.info('SMS turn notify: room=%s player=%s phone=%s',
                     game.room_code, player.name, textbelt_sms._redact(phone))
     textbelt_sms.send(phone, message, webhook_url)
